@@ -43,8 +43,9 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            build-essential cmake clang libclang-dev
-          echo "LIBCLANG_PATH=$(llvm-config --libdir 2>/dev/null || echo /usr/lib/llvm-14/lib)" >> "$GITHUB_ENV"
+            build-essential cmake clang libclang-dev llvm-dev
+          # Point bindgen at the actual libclang dir (llvm-dev provides llvm-config).
+          echo "LIBCLANG_PATH=$(llvm-config --libdir)" >> "$GITHUB_ENV"
 
       - name: Install C build dependencies (macOS)
         if: runner.os == 'macOS'
