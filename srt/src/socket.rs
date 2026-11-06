@@ -1,11 +1,12 @@
 //! Connected sockets and listeners.
 //!
-//! All operations here are **blocking** — they map directly onto libsrt's
-//! synchronous mode (the default `SRTO_RCVSYN`/`SRTO_SNDSYN`). The types and
-//! method names are chosen so a future Tokio layer can wrap the same
-//! [`Socket`]/[`Listener`] (flipping the sockets to non-blocking and driving
-//! them with `srt_epoll`) and add `async` methods *alongside* these without
-//! changing or breaking the existing signatures. See the crate root docs.
+//! The inherent `send`/`recv`/`accept` methods here are **blocking** — they map
+//! directly onto libsrt's synchronous mode (the default
+//! `SRTO_RCVSYN`/`SRTO_SNDSYN`). With the `tokio` feature enabled, the same
+//! [`Socket`]/[`Listener`] also gain `async` methods (`send_async`,
+//! `recv_async`, `accept_async`) that flip the socket to non-blocking and drive
+//! it with `srt_epoll`, added *alongside* the blocking ones without changing
+//! their signatures. See the crate root docs.
 
 use std::net::SocketAddr;
 #[cfg(feature = "tokio")]
@@ -16,6 +17,7 @@ use crate::ffi::{self, RawSocket};
 use crate::library::Library;
 #[cfg(feature = "tokio")]
 use crate::reactor::Reactor;
+use crate::stats::Stats;
 
 /// A connected SRT socket: the result of [`Builder::connect`](crate::Builder::connect)
 /// or [`Listener::accept`].
@@ -67,6 +69,25 @@ impl Socket {
     /// The address of the connected peer.
     pub fn peer_addr(&self) -> Result<SocketAddr> {
         ffi::peer_addr(self.sock)
+    }
+
+    /// Read this socket's transport [`Stats`] (`srt_bstats`, instantaneous
+    /// variant). If `clear` is `true`, the interval counters are reset after
+    /// the snapshot is taken.
+    #[tracing::instrument(level = "debug", skip(self), fields(sock = self.sock))]
+    pub fn stats(&self, clear: bool) -> Result<Stats> {
+        let raw = ffi::bstats(self.sock, clear).inspect_err(|e| {
+            tracing::error!(error.kind = "stats", error = %e, "srt bstats failed");
+        })?;
+        Ok(Stats::from_raw(&raw))
+    }
+}
+
+#[cfg(test)]
+impl Socket {
+    /// Read back a raw `i32`-valued option, for test verification.
+    pub(crate) fn get_flag_i32(&self, opt: srt_sys::SRT_SOCKOPT) -> Result<i32> {
+        ffi::get_flag_i32(self.sock, opt)
     }
 }
 

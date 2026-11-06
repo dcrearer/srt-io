@@ -12,40 +12,99 @@
 //!   [`send`](Socket::send) / [`recv`](Socket::recv).
 //! - [`Listener`] — a bound socket with [`listen`](Listener::listen) /
 //!   [`accept`](Listener::accept).
+//! - [`Stats`] — a safe snapshot of a socket's transport statistics
+//!   ([`Socket::stats`]).
 //! - [`Error`] — the crate's single typed error, built with `thiserror` from
 //!   libsrt's own diagnostics.
 //!
+//! # Example
+//!
+//! A blocking loopback round-trip: a listener echoes one message back to a
+//! caller. Both ends come from the same [`Library`] handle.
+//!
+//! ```
+//! use std::thread;
+//! use std::time::Duration;
+//! use srt::{Congestion, Library, TransportType};
+//!
+//! # fn main() -> srt::Result<()> {
+//! let lib = Library::init()?;
+//!
+//! // Bind a listener on an ephemeral loopback port.
+//! let listener = lib
+//!     .builder()
+//!     .transport_type(TransportType::Live)
+//!     .congestion(Congestion::Live)
+//!     .latency(Duration::from_millis(120))
+//!     .bind("127.0.0.1:0")?;
+//! listener.listen(1)?;
+//! let addr = listener.local_addr()?;
+//!
+//! let server = thread::spawn(move || -> srt::Result<()> {
+//!     let (conn, _peer) = listener.accept()?;
+//!     let mut buf = [0u8; 1500];
+//!     let n = conn.recv(&mut buf)?;
+//!     conn.send(&buf[..n])?;
+//!     // Keep the socket open until the client has read the echo.
+//!     let _ = conn.recv(&mut buf);
+//!     Ok(())
+//! });
+//!
+//! let client = lib
+//!     .builder()
+//!     .transport_type(TransportType::Live)
+//!     .connect_timeout(Duration::from_secs(3))
+//!     .connect(addr)?;
+//! client.send(b"hello over SRT")?;
+//!
+//! let mut buf = [0u8; 1500];
+//! let n = client.recv(&mut buf)?;
+//! assert_eq!(&buf[..n], b"hello over SRT");
+//!
+//! // `stats` exposes RTT, bandwidth, and packet/byte counters.
+//! let stats = client.stats(false)?;
+//! assert!(stats.packets_sent > 0);
+//!
+//! drop(client);
+//! server.join().expect("server thread")?;
+//! # Ok(())
+//! # }
+//! ```
+//!
 //! # Safety architecture
 //!
-//! All `unsafe` code is confined to the private [`ffi`] module. The crate
+//! All `unsafe` code is confined to the private `ffi` module. The crate
 //! denies `unsafe_code` everywhere and relaxes that lint only for `ffi`, so
 //! every other module is ordinary safe Rust that talks to libsrt solely
 //! through `ffi`'s safe wrappers.
 //!
-//! # Forward-compatibility with async
+//! # Async (the `tokio` feature)
 //!
-//! The public surface is deliberately designed so a future Tokio layer can be
-//! added **without breaking changes**:
+//! Enabling the optional `tokio` feature adds a fully asynchronous layer on the
+//! *same* [`Socket`]/[`Listener`]/[`Builder`] types — no separate types, and no
+//! change to the blocking signatures:
 //!
-//! - All blocking calls run in libsrt's default synchronous mode
-//!   (`SRTO_RCVSYN`/`SRTO_SNDSYN` left enabled). An async layer will flip those
-//!   flags to non-blocking and drive sockets with `srt_epoll`, but it will
-//!   wrap the *same* [`Socket`]/[`Listener`]/[`Builder`] types and add `async`
-//!   methods (e.g. `connect_async`, `send`/`recv` futures) alongside today's
-//!   signatures rather than replacing them.
-//! - [`Builder`] already separates configuration ([`crate::Builder`] options)
-//!   from the act of creating a socket, so an async constructor can consume the
-//!   identical configuration.
-//! - [`Socket`] and [`Listener`] are `Send`, so they can move onto a runtime's
+//! - Blocking calls use libsrt's default synchronous mode
+//!   (`SRTO_RCVSYN`/`SRTO_SNDSYN` enabled). Async sockets flip those flags to
+//!   non-blocking and are driven by a shared `srt_epoll` reactor; the feature
+//!   adds `async` methods (`connect_async`/`bind_async`, `accept_async`,
+//!   `send_async`/`recv_async`) alongside the blocking ones.
+//! - [`Builder`] separates configuration from socket creation, so the async
+//!   constructors consume the identical configuration.
+//! - [`Socket`] and [`Listener`] are `Send`, so they move onto a runtime's
 //!   worker threads unchanged.
+//!
+//! The default build compiles none of this — the blocking API pulls in no Tokio.
 
 #![deny(unsafe_code)]
+#![warn(missing_docs)]
 
 mod builder;
 mod error;
 mod library;
 mod options;
 mod socket;
+mod stats;
 
 // The Tokio async layer. Entirely additive and behind the `tokio` feature; the
 // default build compiles none of it. See the crate root docs on the async plan.
@@ -60,8 +119,9 @@ mod ffi;
 pub use builder::Builder;
 pub use error::{Error, Result};
 pub use library::Library;
-pub use options::{KeyLength, TransportType};
+pub use options::{Congestion, KeyLength, TransportType};
 pub use socket::{Listener, Socket};
+pub use stats::Stats;
 
 #[cfg(test)]
 mod tests {
@@ -146,6 +206,123 @@ mod tests {
                 .send_timeout(Duration::from_secs(5))
                 .connect_timeout(Duration::from_secs(3))
         });
+    }
+
+    #[test]
+    fn curated_options_roundtrip_and_apply() {
+        // Exercise the curated option setters end to end, then confirm one of
+        // them was actually pushed to libsrt by reading it back with
+        // `srt_getsockflag` on the connected caller socket.
+        let lib = Library::init().expect("startup");
+
+        let configure = |b: Builder| {
+            b.transport_type(TransportType::Live)
+                .congestion(Congestion::Live)
+                .max_bw(1_250_000)
+                .input_bw(1_000_000)
+                .overhead_bw(25)
+                .send_buf(1_000_000)
+                .recv_buf(1_000_000)
+                .flow_window(25_600)
+                .mss(1_500)
+                .too_late_drop(true)
+                .nak_report(true)
+                .loss_max_ttl(16)
+                .peer_idle_timeout(Duration::from_secs(10))
+                .stream_id("test-stream")
+                .retransmit_algo(1)
+                .connect_timeout(Duration::from_secs(3))
+                .receive_timeout(Duration::from_secs(5))
+                .send_timeout(Duration::from_secs(5))
+        };
+
+        let listener = configure(lib.builder()).bind("127.0.0.1:0").expect("bind");
+        listener.listen(1).expect("listen");
+        let addr = listener.local_addr().expect("local_addr");
+
+        let server = thread::spawn(move || {
+            let (conn, _peer) = listener.accept().expect("accept");
+            let mut buf = [0u8; 1500];
+            let n = conn.recv(&mut buf).expect("server recv");
+            let _ = conn.send(&buf[..n]).expect("server echo");
+            let mut drain = [0u8; 1500];
+            let _ = conn.recv(&mut drain);
+            drop(conn);
+            drop(listener);
+        });
+
+        let client = configure(lib.builder()).connect(addr).expect("connect");
+
+        // Verify a value survived the apply path (NAKREPORT is not renegotiated
+        // by the handshake, so the caller-side value is stable).
+        let nak = client
+            .get_flag_i32(srt_sys::SRT_SOCKOPT::SRTO_NAKREPORT)
+            .expect("getsockflag");
+        assert_eq!(nak, 1, "nak_report(true) should read back as 1");
+
+        let payload = b"curated options payload";
+        client.send(payload).expect("client send");
+        let mut buf = [0u8; 1500];
+        let n = client.recv(&mut buf).expect("client recv");
+        assert_eq!(&buf[..n], payload);
+
+        drop(client);
+        server.join().expect("server thread");
+    }
+
+    #[test]
+    fn stats_report_nonzero_after_roundtrip() {
+        let lib = Library::init().expect("startup");
+
+        let listener = lib
+            .builder()
+            .transport_type(TransportType::Live)
+            .bind("127.0.0.1:0")
+            .expect("bind");
+        listener.listen(1).expect("listen");
+        let addr = listener.local_addr().expect("local_addr");
+
+        let server = thread::spawn(move || {
+            let (conn, _peer) = listener.accept().expect("accept");
+            let mut buf = [0u8; 1500];
+            let n = conn.recv(&mut buf).expect("server recv");
+            let _ = conn.send(&buf[..n]).expect("server echo");
+            // Read stats on the receiving end: it must have received packets.
+            let stats = conn.stats(false).expect("server stats");
+            assert!(
+                stats.packets_received > 0,
+                "server should have received packets, got {stats:?}"
+            );
+            let mut drain = [0u8; 1500];
+            let _ = conn.recv(&mut drain);
+            drop(conn);
+            drop(listener);
+        });
+
+        let client = lib
+            .builder()
+            .transport_type(TransportType::Live)
+            .connect_timeout(Duration::from_secs(3))
+            .connect(addr)
+            .expect("connect");
+        let payload = b"stats payload";
+        client.send(payload).expect("client send");
+        let mut buf = [0u8; 1500];
+        let n = client.recv(&mut buf).expect("client recv");
+        assert_eq!(&buf[..n], payload);
+
+        let stats = client.stats(false).expect("client stats");
+        assert!(
+            stats.packets_sent > 0,
+            "client should have sent packets, got {stats:?}"
+        );
+        assert!(
+            stats.bytes_sent > 0,
+            "client should have sent bytes, got {stats:?}"
+        );
+
+        drop(client);
+        server.join().expect("server thread");
     }
 
     #[test]

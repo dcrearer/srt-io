@@ -3,7 +3,11 @@ name = "srt-sys"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+repository.workspace = true
 description = "Native FFI bindings to libsrt (Secure Reliable Transport)"
+readme = "../README.md"
+categories = ["network-programming", "external-ffi-bindings"]
+keywords = ["srt", "libsrt", "ffi", "streaming", "transport"]
 links = "srt"
 build = "build.rs"
 

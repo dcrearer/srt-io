@@ -3,7 +3,11 @@ name = "srt"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+repository.workspace = true
 description = "Safe Rust wrapper over libsrt (Secure Reliable Transport)"
+readme = "../README.md"
+categories = ["network-programming"]
+keywords = ["srt", "libsrt", "streaming", "transport", "video"]
 
 [dependencies]
 srt-sys.workspace = true
@@ -18,3 +22,12 @@ tokio = ["dep:tokio"]
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["rt-multi-thread"] }
+
+# Async examples require the Tokio layer; they are skipped without the feature.
+[[example]]
+name = "async_listener"
+required-features = ["tokio"]
+
+[[example]]
+name = "async_caller"
+required-features = ["tokio"]

@@ -95,7 +95,7 @@ pub fn reject_reason(sock: RawSocket) -> (i32, String) {
     (code as i32, message)
 }
 
-/// `srt_startup`. Returns the raw code (`>= 0` on success).
+/// `srt_startup`. Reduced to `Ok(())` on success (libsrt returns `>= 0`).
 pub fn startup() -> Result<()> {
     // SAFETY: `srt_startup` takes no arguments and is safe to call repeatedly;
     // libsrt reference-counts internally.
@@ -157,6 +157,29 @@ pub fn set_flag_i32(sock: RawSocket, opt: srt_sys::SRT_SOCKOPT, value: i32) -> R
     check(rc, "set socket option")
 }
 
+/// Set a 64-bit integer-valued socket option (e.g. `SRTO_MAXBW`).
+pub fn set_flag_i64(sock: RawSocket, opt: srt_sys::SRT_SOCKOPT, value: i64) -> Result<()> {
+    // SAFETY: `int64_t` options expect a pointer to an 8-byte value; `&value`
+    // is valid and aligned, and we pass the matching length.
+    let rc = unsafe {
+        srt_sys::srt_setsockflag(
+            sock,
+            opt,
+            (&value as *const i64).cast(),
+            std::mem::size_of::<i64>() as c_int,
+        )
+    };
+    check(rc, "set socket option")
+}
+
+/// Set a boolean-valued socket option (e.g. `SRTO_TLPKTDROP`).
+///
+/// libsrt's boolean options accept a C `int` of `0`/`1` (the same path used by
+/// `SRTO_RCVSYN`/`SRTO_SNDSYN`), so this forwards to [`set_flag_i32`].
+pub fn set_flag_bool(sock: RawSocket, opt: srt_sys::SRT_SOCKOPT, value: bool) -> Result<()> {
+    set_flag_i32(sock, opt, i32::from(value))
+}
+
 /// Set a byte-buffer socket option (e.g. the encryption passphrase).
 pub fn set_flag_bytes(sock: RawSocket, opt: srt_sys::SRT_SOCKOPT, value: &[u8]) -> Result<()> {
     // SAFETY: buffer options expect `(ptr, len)`; `value` is a valid slice and
@@ -164,6 +187,39 @@ pub fn set_flag_bytes(sock: RawSocket, opt: srt_sys::SRT_SOCKOPT, value: &[u8]) 
     let rc =
         unsafe { srt_sys::srt_setsockflag(sock, opt, value.as_ptr().cast(), value.len() as c_int) };
     check(rc, "set socket option")
+}
+
+/// Read a 32-bit integer-valued socket option (`srt_getsockflag`).
+///
+/// Used by tests to confirm an option was applied; the instantaneous stats use
+/// [`bstats`].
+#[cfg(test)]
+pub fn get_flag_i32(sock: RawSocket, opt: srt_sys::SRT_SOCKOPT) -> Result<i32> {
+    let mut value: i32 = 0;
+    let mut len: c_int = std::mem::size_of::<i32>() as c_int;
+    // SAFETY: integer options write a 4-byte `int` through `optval`; `&mut
+    // value` is a valid, aligned, writable location and `len` matches its size.
+    let rc =
+        unsafe { srt_sys::srt_getsockflag(sock, opt, (&mut value as *mut i32).cast(), &mut len) };
+    check(rc, "get socket option")?;
+    Ok(value)
+}
+
+/// `srt_bistats` in instantaneous mode. Fills and returns the raw performance
+/// monitor struct; `clear` resets the interval counters after reading.
+///
+/// The returned value is a plain `#[repr(C)]` POD struct (no borrowed pointers),
+/// which the safe [`crate::stats::Stats`] wrapper then projects.
+pub fn bstats(sock: RawSocket, clear: bool) -> Result<srt_sys::SRT_TRACEBSTATS> {
+    // SAFETY: `SRT_TRACEBSTATS` is a POD byte buffer; an all-zero bit pattern is
+    // a valid, empty value.
+    let mut perf: srt_sys::SRT_TRACEBSTATS = unsafe { std::mem::zeroed() };
+    // SAFETY: `perf` is a valid, writable `SRT_TRACEBSTATS` that outlives the
+    // call; libsrt fills it in and retains no pointer. The final `1` selects the
+    // instantaneous variant.
+    let rc = unsafe { srt_sys::srt_bistats(sock, &mut perf, c_int::from(clear), 1) };
+    check(rc, "bstats")?;
+    Ok(perf)
 }
 
 /// `srt_bind`.
