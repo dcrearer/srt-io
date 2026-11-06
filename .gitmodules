@@ -1,0 +1,6 @@
+[submodule "srt-sys/vendor/libsrt"]
+	path = srt-sys/vendor/libsrt
+	url = https://github.com/Haivision/srt.git
+[submodule "srt-sys/vendor/mbedtls"]
+	path = srt-sys/vendor/mbedtls
+	url = https://github.com/Mbed-TLS/mbedtls.git
