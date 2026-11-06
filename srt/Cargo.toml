@@ -9,6 +9,7 @@ description = "Safe Rust wrapper over libsrt (Secure Reliable Transport)"
 srt-sys.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
+libc.workspace = true
 
 [dev-dependencies]
 tokio.workspace = true

@@ -1,0 +1,34 @@
+# Automated Security Helper (ASH) v3 configuration
+# Run locally with: ash --mode local
+# Run in CI with:    uvx git+https://github.com/awslabs/automated-security-helper.git@v3 --mode local
+project_name: srt-rs
+
+global_settings:
+  severity_threshold: MEDIUM
+  # Vendored C libraries are maintained upstream (git submodules); do not scan them here.
+  ignore_paths:
+    - path: 'srt-sys/vendor/**'
+      reason: 'Vendored third-party C sources (libsrt, mbedTLS) tracked as git submodules and maintained upstream.'
+    - path: 'target/**'
+      reason: 'Cargo build output (including the vendored cmake build tree).'
+
+scanners:
+  # Secrets detection across the repository.
+  detect-secrets:
+    enabled: true
+  # Dependency / SCA and IaC scanners.
+  grype:
+    enabled: true
+  bandit:
+    enabled: true
+  # Rust crate advisories are already covered by `cargo audit` in CI.
+  cfn-nag:
+    enabled: true
+  checkov:
+    enabled: true
+  cdk-nag:
+    enabled: false
+  semgrep:
+    enabled: true
+  npm-audit:
+    enabled: false

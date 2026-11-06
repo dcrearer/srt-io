@@ -1,0 +1,28 @@
+# Pre-commit hooks for srt-rs.
+# Install with: uvx pre-commit install   (or: pre-commit install)
+# Run on all files: uvx pre-commit run --all-files
+minimum_pre_commit_version: "3.5.0"
+
+repos:
+  # Automated Security Helper (ASH) — local security scan.
+  - repo: https://github.com/awslabs/automated-security-helper
+    rev: v3
+    hooks:
+      - id: ash-simple-scan
+
+  # Local Rust hooks (run against the system toolchain pinned by rust-toolchain.toml).
+  - repo: local
+    hooks:
+      - id: cargo-fmt
+        name: cargo fmt --check
+        entry: cargo fmt --all --check
+        language: system
+        types: [rust]
+        pass_filenames: false
+
+      - id: cargo-clippy
+        name: cargo clippy -D warnings
+        entry: cargo clippy --workspace --all-targets -- -D warnings
+        language: system
+        types: [rust]
+        pass_filenames: false
