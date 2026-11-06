@@ -286,6 +286,145 @@ fn getname(sock: RawSocket, peer: bool) -> Result<SocketAddr> {
         .ok_or_else(|| Error::address("libsrt returned an unknown address family"))
 }
 
+// ---- async epoll support (tokio feature only) ---------------------------
+//
+// These wrappers back the async reactor. They are the only place the
+// `srt_epoll_*` family and `srt_getsockstate` are called; like everything else
+// in this module they reduce raw FFI to safe `Result`s and carry `// SAFETY:`
+// notes. Gated on the `tokio` feature so the default build pulls none of it in.
+
+/// `SRT_EPOLL_IN`: readable / a connection is waiting to be accepted.
+#[cfg(feature = "tokio")]
+pub const EPOLL_IN: c_int = srt_sys::SRT_EPOLL_OPT::SRT_EPOLL_IN as c_int;
+/// `SRT_EPOLL_OUT`: writable / (for a connecting socket) connected.
+#[cfg(feature = "tokio")]
+pub const EPOLL_OUT: c_int = srt_sys::SRT_EPOLL_OPT::SRT_EPOLL_OUT as c_int;
+/// `SRT_EPOLL_ERR`: the socket has broken / errored.
+#[cfg(feature = "tokio")]
+pub const EPOLL_ERR: c_int = srt_sys::SRT_EPOLL_OPT::SRT_EPOLL_ERR as c_int;
+
+/// libsrt error code for a would-block receive (`SRT_EASYNCRCV`).
+#[cfg(feature = "tokio")]
+pub const EASYNCRCV: i32 = srt_sys::SRT_ERRNO::SRT_EASYNCRCV as i32;
+/// libsrt error code for a would-block send (`SRT_EASYNCSND`).
+#[cfg(feature = "tokio")]
+pub const EASYNCSND: i32 = srt_sys::SRT_ERRNO::SRT_EASYNCSND as i32;
+
+/// A per-socket readiness event reported by [`epoll_uwait`].
+#[cfg(feature = "tokio")]
+pub type EpollEvent = srt_sys::SRT_EPOLL_EVENT;
+
+/// Connection state of a socket (`srt_getsockstate`), reduced to a safe enum.
+#[cfg(feature = "tokio")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SockStatus {
+    Init,
+    Opened,
+    Listening,
+    Connecting,
+    Connected,
+    Broken,
+    Closing,
+    Closed,
+    NonExist,
+}
+
+/// `srt_getsockstate`.
+#[cfg(feature = "tokio")]
+pub fn getsockstate(sock: RawSocket) -> SockStatus {
+    use srt_sys::SRT_SOCKSTATUS::*;
+    // SAFETY: `srt_getsockstate` takes a socket id by value and has no pointer
+    // arguments; it returns a plain enum value.
+    let raw = unsafe { srt_sys::srt_getsockstate(sock) };
+    match raw {
+        SRTS_INIT => SockStatus::Init,
+        SRTS_OPENED => SockStatus::Opened,
+        SRTS_LISTENING => SockStatus::Listening,
+        SRTS_CONNECTING => SockStatus::Connecting,
+        SRTS_CONNECTED => SockStatus::Connected,
+        SRTS_BROKEN => SockStatus::Broken,
+        SRTS_CLOSING => SockStatus::Closing,
+        SRTS_CLOSED => SockStatus::Closed,
+        SRTS_NONEXIST => SockStatus::NonExist,
+    }
+}
+
+/// `srt_epoll_create`. Returns the new epoll id.
+#[cfg(feature = "tokio")]
+pub fn epoll_create() -> Result<c_int> {
+    // SAFETY: `srt_epoll_create` takes no arguments and returns an id (>= 0) or
+    // `SRT_ERROR`.
+    let eid = unsafe { srt_sys::srt_epoll_create() };
+    if eid == srt_sys::SRT_ERROR {
+        Err(Error::from_last("epoll create"))
+    } else {
+        Ok(eid)
+    }
+}
+
+/// `srt_epoll_release`. Best-effort teardown; logs on failure (called from
+/// `Drop`).
+#[cfg(feature = "tokio")]
+pub fn epoll_release(eid: c_int) {
+    // SAFETY: `srt_epoll_release` takes the epoll id by value.
+    let rc = unsafe { srt_sys::srt_epoll_release(eid) };
+    if rc == srt_sys::SRT_ERROR {
+        let (code, message) = last_error();
+        tracing::warn!(eid, error.code = code, error.message = %message, "srt_epoll_release failed");
+    }
+}
+
+/// `srt_epoll_add_usock` with the given event mask.
+#[cfg(feature = "tokio")]
+pub fn epoll_add_usock(eid: c_int, sock: RawSocket, events: c_int) -> Result<()> {
+    // SAFETY: `events` points to a single valid `int` that outlives the call;
+    // libsrt reads the mask and does not retain the pointer.
+    let rc = unsafe { srt_sys::srt_epoll_add_usock(eid, sock, &events as *const c_int) };
+    check(rc, "epoll add")
+}
+
+/// `srt_epoll_update_usock` — change the subscribed event mask.
+#[cfg(feature = "tokio")]
+pub fn epoll_update_usock(eid: c_int, sock: RawSocket, events: c_int) -> Result<()> {
+    // SAFETY: `events` points to a single valid `int` that outlives the call.
+    let rc = unsafe { srt_sys::srt_epoll_update_usock(eid, sock, &events as *const c_int) };
+    check(rc, "epoll update")
+}
+
+/// `srt_epoll_remove_usock`.
+#[cfg(feature = "tokio")]
+pub fn epoll_remove_usock(eid: c_int, sock: RawSocket) -> Result<()> {
+    // SAFETY: `srt_epoll_remove_usock` takes the epoll id and socket id by
+    // value; removing an absent socket is reported via the return code.
+    let rc = unsafe { srt_sys::srt_epoll_remove_usock(eid, sock) };
+    check(rc, "epoll remove")
+}
+
+/// `srt_epoll_uwait`. Fills `events` with up to `events.len()` ready sockets and
+/// returns how many were written. A return of `0` means the timeout elapsed.
+#[cfg(feature = "tokio")]
+pub fn epoll_uwait(eid: c_int, events: &mut [EpollEvent], timeout_ms: i64) -> Result<usize> {
+    // SAFETY: `events` is a valid, writable slice; we pass its real length and
+    // libsrt writes at most that many entries, returning the count.
+    let rc = unsafe {
+        srt_sys::srt_epoll_uwait(eid, events.as_mut_ptr(), events.len() as c_int, timeout_ms)
+    };
+    if rc == srt_sys::SRT_ERROR {
+        Err(Error::from_last("epoll wait"))
+    } else {
+        Ok(rc as usize)
+    }
+}
+
+/// Set a socket to libsrt's non-blocking mode (`SRTO_RCVSYN = SRTO_SNDSYN = 0`).
+#[cfg(feature = "tokio")]
+pub fn set_nonblocking(sock: RawSocket) -> Result<()> {
+    use srt_sys::SRT_SOCKOPT::{SRTO_RCVSYN, SRTO_SNDSYN};
+    set_flag_i32(sock, SRTO_SNDSYN, 0)?;
+    set_flag_i32(sock, SRTO_RCVSYN, 0)?;
+    Ok(())
+}
+
 // ---- address conversion -------------------------------------------------
 
 /// Serialise a [`SocketAddr`] into a C `sockaddr_storage` plus its length.

@@ -143,6 +143,72 @@ impl Builder {
     }
 }
 
+#[cfg(feature = "tokio")]
+impl Builder {
+    /// Asynchronously create a non-blocking socket, apply all configured
+    /// options, and connect to `addr` as a caller. Resolves to the connected
+    /// [`Socket`], which is registered with the reactor for async I/O.
+    ///
+    /// Unlike [`connect`](Builder::connect) this never blocks the runtime: the
+    /// handshake is driven by the reactor and the task is parked until the
+    /// connection is established (or rejected).
+    #[tracing::instrument(level = "debug", skip(self, addr))]
+    pub async fn connect_async(&self, addr: impl ToSocketAddrs) -> Result<Socket> {
+        use crate::ffi::SockStatus;
+
+        let addr = resolve(addr)?;
+        let sock = ffi::create_socket()?;
+        // Wrap immediately so the socket is closed on any early return.
+        let socket = Socket::from_raw(sock, self.library.clone());
+        if let Err(e) = self.options.apply(sock) {
+            tracing::error!(error.kind = "configure", error = %e, "applying socket options failed");
+            return Err(e);
+        }
+        // Flip to non-blocking and register before connecting so the handshake
+        // can be driven asynchronously.
+        let reactor = std::sync::Arc::clone(socket.reactor()?);
+        if let Err(e) = ffi::connect(sock, &addr) {
+            tracing::error!(error.kind = "connect", error = %e, %addr, "srt async connect failed");
+            return Err(e);
+        }
+        loop {
+            match ffi::getsockstate(sock) {
+                SockStatus::Connected => return Ok(socket),
+                SockStatus::Broken | SockStatus::Closed | SockStatus::NonExist => {
+                    let e = Error::from_reject("connect", sock);
+                    tracing::error!(error.kind = "connect", error = %e, %addr, "srt async connect rejected");
+                    return Err(e);
+                }
+                _ => {}
+            }
+            std::future::poll_fn(|cx| reactor.poll_writable(sock, cx)).await;
+            reactor.clear_writable(sock);
+        }
+    }
+
+    /// Asynchronously create a non-blocking socket, apply all configured
+    /// options, and bind it to `addr`. Returns a [`Listener`] registered with
+    /// the reactor; call [`Listener::listen`] then
+    /// [`Listener::accept_async`].
+    #[tracing::instrument(level = "debug", skip(self, addr))]
+    pub async fn bind_async(&self, addr: impl ToSocketAddrs) -> Result<Listener> {
+        let addr = resolve(addr)?;
+        let sock = ffi::create_socket()?;
+        let listener = Listener::from_raw(sock, self.library.clone());
+        if let Err(e) = self.options.apply(sock) {
+            tracing::error!(error.kind = "configure", error = %e, "applying socket options failed");
+            return Err(e);
+        }
+        // Flip to non-blocking and register for async accept.
+        listener.reactor()?;
+        if let Err(e) = ffi::bind(sock, &addr) {
+            tracing::error!(error.kind = "bind", error = %e, %addr, "srt async bind failed");
+            return Err(e);
+        }
+        Ok(listener)
+    }
+}
+
 /// Resolve `impl ToSocketAddrs` to its first address.
 fn resolve(addr: impl ToSocketAddrs) -> Result<SocketAddr> {
     addr.to_socket_addrs()

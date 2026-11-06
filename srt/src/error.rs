@@ -85,6 +85,24 @@ impl Error {
         }
     }
 
+    /// Build an [`Error::ConnectionRejected`] from a socket's reject reason
+    /// alone, without consulting the per-thread last-error slot.
+    ///
+    /// Used by the async connect path: a non-blocking handshake fails on
+    /// libsrt's internal worker threads, so `srt_getlasterror()` on the caller
+    /// thread is not meaningful; the reject reason attached to the socket is.
+    #[cfg(feature = "tokio")]
+    pub(crate) fn from_reject(context: &'static str, sock: ffi::RawSocket) -> Self {
+        let (reject_code, reject_reason) = ffi::reject_reason(sock);
+        Error::ConnectionRejected {
+            context,
+            code: srt_sys::SRT_ERROR,
+            message: "non-blocking connection failed".to_owned(),
+            reject_code,
+            reject_reason,
+        }
+    }
+
     /// Build an [`Error::ConnectionRejected`] from the last error plus the
     /// socket's reject reason.
     pub(crate) fn from_last_with_reject(context: &'static str, sock: ffi::RawSocket) -> Self {

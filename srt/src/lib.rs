@@ -47,6 +47,11 @@ mod library;
 mod options;
 mod socket;
 
+// The Tokio async layer. Entirely additive and behind the `tokio` feature; the
+// default build compiles none of it. See the crate root docs on the async plan.
+#[cfg(feature = "tokio")]
+mod reactor;
+
 // `ffi` is the single module permitted to use `unsafe`; the crate-wide
 // `forbid` above is relaxed only here.
 #[allow(unsafe_code)]
@@ -168,6 +173,114 @@ mod tests {
             .passphrase("caller-passphrase-xx")
             .connect_timeout(Duration::from_secs(3))
             .connect(addr);
+
+        assert!(
+            matches!(result, Err(Error::ConnectionRejected { .. })),
+            "expected ConnectionRejected, got {result:?}"
+        );
+        drop(listener);
+    }
+}
+
+#[cfg(all(test, feature = "tokio"))]
+mod async_tests {
+    use super::*;
+    use std::time::Duration;
+
+    /// Fully asynchronous loopback round-trip: an async listener accepts an
+    /// async caller, the caller sends, the server echoes, the caller reads it
+    /// back. Every socket operation here is `_async` — nothing blocks the
+    /// Tokio runtime.
+    async fn async_roundtrip(
+        configure: impl Fn(Builder) -> Builder + Send + Sync + Clone + 'static,
+    ) {
+        let lib = Library::init().expect("startup");
+
+        let cfg_server = configure.clone();
+        let listener = cfg_server(lib.builder())
+            .bind_async("127.0.0.1:0")
+            .await
+            .expect("bind");
+        listener.listen(1).expect("listen");
+        let addr = listener.local_addr().expect("local_addr");
+
+        // Server task: accept, echo the first message, then keep the socket
+        // open (via a trailing recv) until the client drops so the echoed
+        // packet is not discarded from the client's playout buffer.
+        let server = tokio::spawn(async move {
+            let (conn, _peer) = listener.accept_async().await.expect("accept");
+            let mut buf = [0u8; 1500];
+            let n = conn.recv_async(&mut buf).await.expect("server recv");
+            let sent = conn.send_async(&buf[..n]).await.expect("server echo");
+            assert_eq!(sent, n);
+            let mut drain = [0u8; 1500];
+            let _ = conn.recv_async(&mut drain).await;
+            drop(conn);
+            drop(listener);
+        });
+
+        let client = configure(lib.builder())
+            .connect_async(addr)
+            .await
+            .expect("connect");
+        let payload = b"the quick brown fox jumps over the lazy dog";
+        let sent = client.send_async(payload).await.expect("client send");
+        assert_eq!(sent, payload.len());
+
+        let mut buf = [0u8; 1500];
+        let n = client.recv_async(&mut buf).await.expect("client recv");
+        assert_eq!(&buf[..n], payload);
+
+        // Dropping the client unblocks the server's trailing recv.
+        drop(client);
+        server.await.expect("server task");
+    }
+
+    #[tokio::test]
+    async fn async_plaintext_roundtrip() {
+        async_roundtrip(|b| {
+            b.transport_type(TransportType::Live)
+                .latency(Duration::from_millis(120))
+                .connect_timeout(Duration::from_secs(3))
+        })
+        .await;
+    }
+
+    #[tokio::test]
+    async fn async_encrypted_roundtrip() {
+        async_roundtrip(|b| {
+            b.transport_type(TransportType::Live)
+                .key_length(KeyLength::Aes256)
+                .passphrase("super-secret-passphrase")
+                .connect_timeout(Duration::from_secs(3))
+        })
+        .await;
+    }
+
+    /// A rejected handshake (passphrase mismatch) surfaces through the async
+    /// connect path as `ConnectionRejected`, without blocking the runtime.
+    #[tokio::test]
+    async fn async_wrong_passphrase_is_rejected() {
+        let lib = Library::init().expect("startup");
+        let listener = lib
+            .builder()
+            .transport_type(TransportType::Live)
+            .key_length(KeyLength::Aes128)
+            .passphrase("listener-passphrase")
+            .bind_async("127.0.0.1:0")
+            .await
+            .expect("bind");
+        listener.listen(1).expect("listen");
+        let addr = listener.local_addr().expect("local_addr");
+
+        let result = lib
+            .builder()
+            .transport_type(TransportType::Live)
+            .key_length(KeyLength::Aes128)
+            .passphrase("caller-passphrase-xx")
+            .connect_timeout(Duration::from_secs(3))
+            .connect_async(addr)
+            .await;
 
         assert!(
             matches!(result, Err(Error::ConnectionRejected { .. })),
