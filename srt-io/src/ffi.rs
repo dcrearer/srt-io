@@ -21,30 +21,11 @@ pub type RawSocket = srt_io_sys::SRTSOCKET;
 /// Sentinel returned by libsrt for an invalid socket.
 pub const INVALID_SOCK: RawSocket = srt_io_sys::SRT_INVALID_SOCK;
 
-/// `true` on platforms whose `sockaddr_*` structs carry a leading length byte
-/// (the BSD family, including macOS/iOS).
-#[cfg(any(
-    target_os = "macos",
-    target_os = "ios",
-    target_os = "tvos",
-    target_os = "watchos",
-    target_os = "freebsd",
-    target_os = "netbsd",
-    target_os = "openbsd",
-    target_os = "dragonfly"
-))]
-const HAS_SA_LEN: bool = true;
-#[cfg(not(any(
-    target_os = "macos",
-    target_os = "ios",
-    target_os = "tvos",
-    target_os = "watchos",
-    target_os = "freebsd",
-    target_os = "netbsd",
-    target_os = "openbsd",
-    target_os = "dragonfly"
-)))]
-const HAS_SA_LEN: bool = false;
+// `sockaddr_in` / `sockaddr_in6` carry a leading `sin_len` / `sin6_len` byte
+// only on BSD-derived platforms (macOS/iOS/*BSD). Those fields are set via the
+// `#[cfg]`-gated blocks below; on other platforms (e.g. Linux) the fields do
+// not exist and must not be referenced — hence compile-time `cfg`, not a
+// runtime check.
 
 /// Reduce a libsrt return code to a `Result`, mapping `SRT_ERROR` to the last
 /// recorded error for `context`.
@@ -498,7 +479,17 @@ fn to_storage(addr: &SocketAddr) -> (srt_io_sys::sockaddr_storage, c_int) {
         SocketAddr::V4(v4) => {
             // SAFETY: `sockaddr_in` is POD; zeroed is a valid starting value.
             let mut sin: libc::sockaddr_in = unsafe { std::mem::zeroed() };
-            if HAS_SA_LEN {
+            #[cfg(any(
+                target_os = "macos",
+                target_os = "ios",
+                target_os = "tvos",
+                target_os = "watchos",
+                target_os = "freebsd",
+                target_os = "netbsd",
+                target_os = "openbsd",
+                target_os = "dragonfly"
+            ))]
+            {
                 sin.sin_len = std::mem::size_of::<libc::sockaddr_in>() as u8;
             }
             sin.sin_family = libc::AF_INET as libc::sa_family_t;
@@ -521,7 +512,17 @@ fn to_storage(addr: &SocketAddr) -> (srt_io_sys::sockaddr_storage, c_int) {
         SocketAddr::V6(v6) => {
             // SAFETY: `sockaddr_in6` is POD; zeroed is a valid starting value.
             let mut sin6: libc::sockaddr_in6 = unsafe { std::mem::zeroed() };
-            if HAS_SA_LEN {
+            #[cfg(any(
+                target_os = "macos",
+                target_os = "ios",
+                target_os = "tvos",
+                target_os = "watchos",
+                target_os = "freebsd",
+                target_os = "netbsd",
+                target_os = "openbsd",
+                target_os = "dragonfly"
+            ))]
+            {
                 sin6.sin6_len = std::mem::size_of::<libc::sockaddr_in6>() as u8;
             }
             sin6.sin6_family = libc::AF_INET6 as libc::sa_family_t;

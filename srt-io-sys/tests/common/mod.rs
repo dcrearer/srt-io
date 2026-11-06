@@ -48,7 +48,19 @@ pub fn last_error() -> String {
 pub fn sockaddr_in_v4(ip: [u8; 4], port: u16) -> libc::sockaddr_in {
     // SAFETY: all-zero is a valid sockaddr_in.
     let mut sa: libc::sockaddr_in = unsafe { std::mem::zeroed() };
-    sa.sin_len = std::mem::size_of::<libc::sockaddr_in>() as u8;
+    #[cfg(any(
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "tvos",
+        target_os = "watchos",
+        target_os = "freebsd",
+        target_os = "netbsd",
+        target_os = "openbsd",
+        target_os = "dragonfly"
+    ))]
+    {
+        sa.sin_len = std::mem::size_of::<libc::sockaddr_in>() as u8;
+    }
     sa.sin_family = libc::AF_INET as libc::sa_family_t;
     sa.sin_port = port.to_be(); // network byte order
     // s_addr holds the 4 address octets in network byte order.
