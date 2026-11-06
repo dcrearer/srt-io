@@ -96,7 +96,7 @@ impl Error {
         let (reject_code, reject_reason) = ffi::reject_reason(sock);
         Error::ConnectionRejected {
             context,
-            code: srt_sys::SRT_ERROR,
+            code: srt_io_sys::SRT_ERROR,
             message: "non-blocking connection failed".to_owned(),
             reject_code,
             reject_reason,

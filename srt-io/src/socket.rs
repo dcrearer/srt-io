@@ -86,7 +86,7 @@ impl Socket {
 #[cfg(test)]
 impl Socket {
     /// Read back a raw `i32`-valued option, for test verification.
-    pub(crate) fn get_flag_i32(&self, opt: srt_sys::SRT_SOCKOPT) -> Result<i32> {
+    pub(crate) fn get_flag_i32(&self, opt: srt_io_sys::SRT_SOCKOPT) -> Result<i32> {
         ffi::get_flag_i32(self.sock, opt)
     }
 }

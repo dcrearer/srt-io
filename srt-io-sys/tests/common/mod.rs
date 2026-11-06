@@ -1,6 +1,6 @@
 //! Shared FFI test helpers for the libsrt interop harness.
 //!
-//! Everything here operates purely at the `srt_sys` raw FFI level so the tests
+//! Everything here operates purely at the `srt_io_sys` raw FFI level so the tests
 //! are independent of the safe `srt` crate. All functions are `unsafe` to call
 //! in spirit, but the thin wrappers encapsulate the pointer juggling.
 #![allow(dead_code)]
@@ -8,10 +8,10 @@
 use std::ffi::CStr;
 use std::sync::Once;
 
-use srt_sys::SRT_SOCKOPT::{
+use srt_io_sys::SRT_SOCKOPT::{
     SRTO_PASSPHRASE, SRTO_PBKEYLEN, SRTO_RCVSYN, SRTO_SNDSYN, SRTO_TRANSTYPE,
 };
-use srt_sys::{
+use srt_io_sys::{
     SRT_SOCKOPT, SRT_TRANSTYPE, SRTSOCKET, srt_getlasterror_str, srt_getsockname, srt_setsockflag,
     srt_startup,
 };
@@ -57,8 +57,8 @@ pub fn sockaddr_in_v4(ip: [u8; 4], port: u16) -> libc::sockaddr_in {
 }
 
 /// Cast a `sockaddr_in` to the bindgen `*const sockaddr` expected by the FFI.
-pub fn as_sockaddr_ptr(sa: &libc::sockaddr_in) -> *const srt_sys::sockaddr {
-    sa as *const libc::sockaddr_in as *const srt_sys::sockaddr
+pub fn as_sockaddr_ptr(sa: &libc::sockaddr_in) -> *const srt_io_sys::sockaddr {
+    sa as *const libc::sockaddr_in as *const srt_io_sys::sockaddr
 }
 
 pub fn sockaddr_len() -> i32 {
@@ -125,7 +125,7 @@ pub fn local_port(sock: SRTSOCKET) -> u16 {
     let rc = unsafe {
         srt_getsockname(
             sock,
-            &mut sa as *mut libc::sockaddr_in as *mut srt_sys::sockaddr,
+            &mut sa as *mut libc::sockaddr_in as *mut srt_io_sys::sockaddr,
             &mut len,
         )
     };

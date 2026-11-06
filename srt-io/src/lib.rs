@@ -1,6 +1,6 @@
 //! Safe Rust wrapper over libsrt (Secure Reliable Transport).
 //!
-//! This crate exposes a **blocking** SRT API built on top of the raw `srt-sys`
+//! This crate exposes a **blocking** SRT API built on top of the raw `srt-io-sys`
 //! FFI bindings:
 //!
 //! - [`Library`] — a reference-counted RAII guard around `srt_startup()` /
@@ -25,9 +25,9 @@
 //! ```
 //! use std::thread;
 //! use std::time::Duration;
-//! use srt::{Congestion, Library, TransportType};
+//! use srt_io::{Congestion, Library, TransportType};
 //!
-//! # fn main() -> srt::Result<()> {
+//! # fn main() -> srt_io::Result<()> {
 //! let lib = Library::init()?;
 //!
 //! // Bind a listener on an ephemeral loopback port.
@@ -40,7 +40,7 @@
 //! listener.listen(1)?;
 //! let addr = listener.local_addr()?;
 //!
-//! let server = thread::spawn(move || -> srt::Result<()> {
+//! let server = thread::spawn(move || -> srt_io::Result<()> {
 //!     let (conn, _peer) = listener.accept()?;
 //!     let mut buf = [0u8; 1500];
 //!     let n = conn.recv(&mut buf)?;
@@ -256,7 +256,7 @@ mod tests {
         // Verify a value survived the apply path (NAKREPORT is not renegotiated
         // by the handshake, so the caller-side value is stable).
         let nak = client
-            .get_flag_i32(srt_sys::SRT_SOCKOPT::SRTO_NAKREPORT)
+            .get_flag_i32(srt_io_sys::SRT_SOCKOPT::SRTO_NAKREPORT)
             .expect("getsockflag");
         assert_eq!(nak, 1, "nak_report(true) should read back as 1");
 

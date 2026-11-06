@@ -1,27 +1,27 @@
 # SRT Interoperability Test Harness
 
 This directory documents the interop test suite that proves our FFI-bound libsrt
-build (the `srt-sys` crate) actually interoperates — both with itself and with
+build (the `srt-io-sys` crate) actually interoperates — both with itself and with
 the **reference** Haivision SRT tooling. Interop correctness is the entire
 reason this project binds the reference C library instead of a pure-Rust SRT
 crate.
 
-All tests operate purely at the raw `srt_sys` FFI level (lots of `unsafe`), so
+All tests operate purely at the raw `srt_io_sys` FFI level (lots of `unsafe`), so
 they are independent of the safe `srt` crate.
 
 ## Test layout
 
 | File | What it covers | Default `cargo test`? |
 |------|----------------|-----------------------|
-| `srt-sys/tests/common/mod.rs`    | Shared FFI helpers (init, sockaddr construction, option setters, payload gen). | n/a (module) |
-| `srt-sys/tests/loopback.rs`      | In-process loopback over 127.0.0.1: listener + caller on separate threads, blocking sockets. Plaintext, AES-128, AES-256, plus a wrong-passphrase negative control. | **Yes — runs and passes** |
-| `srt-sys/tests/cross_impl.rs`    | Cross-implementation interop against `srt-live-transmit`. Both roles. | No — `#[ignore]` (needs external binary) |
+| `srt-io-sys/tests/common/mod.rs`    | Shared FFI helpers (init, sockaddr construction, option setters, payload gen). | n/a (module) |
+| `srt-io-sys/tests/loopback.rs`      | In-process loopback over 127.0.0.1: listener + caller on separate threads, blocking sockets. Plaintext, AES-128, AES-256, plus a wrong-passphrase negative control. | **Yes — runs and passes** |
+| `srt-io-sys/tests/cross_impl.rs`    | Cross-implementation interop against `srt-live-transmit`. Both roles. | No — `#[ignore]` (needs external binary) |
 
 ## Versions observed
 
 | Component | Version |
 |-----------|---------|
-| Our vendored libsrt (`srt-sys`)        | **1.5.4** (static, mbedTLS 3.6.2) |
+| Our vendored libsrt (`srt-io-sys`)        | **1.5.4** (static, mbedTLS 3.6.2) |
 | Reference `srt-live-transmit` binary   | links libsrt **1.5.6** (`Built with SRT Library version: 1.5.6`) |
 | Homebrew `srt` formula                 | 1.5.7 (the shipped `srt-live-transmit` reports the 1.5.6 lib internally) |
 | Platform                               | macOS (darwin, arm64) |
@@ -46,7 +46,7 @@ On Linux you can instead build libsrt's apps in a throwaway dir
 ### FFI loopback (always runs)
 
 ```sh
-cargo test -p srt-sys --test loopback
+cargo test -p srt-io-sys --test loopback
 ```
 
 Round-trips a 1200-byte payload between a listener and a caller, each on its own
@@ -62,11 +62,11 @@ thread, with blocking (`SRTO_RCVSYN`/`SRTO_SNDSYN = 1`) live-mode sockets.
 
 ```sh
 # with the binary on PATH:
-cargo test -p srt-sys --test cross_impl -- --ignored --nocapture
+cargo test -p srt-io-sys --test cross_impl -- --ignored --nocapture
 
 # or point at a specific binary:
 SRT_LIVE_TRANSMIT=/opt/homebrew/bin/srt-live-transmit \
-    cargo test -p srt-sys --test cross_impl -- --ignored --nocapture
+    cargo test -p srt-io-sys --test cross_impl -- --ignored --nocapture
 ```
 
 Run serially (`--test-threads=1`) if you want the two roles not to overlap; they
@@ -86,7 +86,7 @@ also pass in parallel.
 
 ## Actual results observed (2026-11-06)
 
-### `cargo test -p srt-sys` (default — loopback + smoke)
+### `cargo test -p srt-io-sys` (default — loopback + smoke)
 
 ```
 running 1 test
@@ -113,7 +113,7 @@ newConnection: connection rejected due to: INTERNAL REJECTION - ERROR:BADSECRET
 processConnectRequest: rsp(REJECT): 1010 - Incorrect passphrase
 ```
 
-### `cargo test -p srt-sys --test cross_impl -- --ignored` (against srt-live-transmit 1.5.6)
+### `cargo test -p srt-io-sys --test cross_impl -- --ignored` (against srt-live-transmit 1.5.6)
 
 ```
 running 2 tests

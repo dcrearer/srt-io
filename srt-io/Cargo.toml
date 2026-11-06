@@ -1,16 +1,15 @@
 [package]
-name = "srt"
+name = "srt-io"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-repository.workspace = true
 description = "Safe Rust wrapper over libsrt (Secure Reliable Transport)"
 readme = "../README.md"
 categories = ["network-programming"]
 keywords = ["srt", "libsrt", "streaming", "transport", "video"]
 
 [dependencies]
-srt-sys.workspace = true
+srt-io-sys.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 libc.workspace = true

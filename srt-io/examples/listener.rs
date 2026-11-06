@@ -12,7 +12,7 @@
 
 use std::time::Duration;
 
-use srt::{Library, Result, TransportType};
+use srt_io::{Library, Result, TransportType};
 
 const DEFAULT_ADDR: &str = "127.0.0.1:4201";
 

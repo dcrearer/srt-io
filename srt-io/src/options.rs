@@ -26,8 +26,8 @@ pub enum TransportType {
 impl TransportType {
     fn as_raw(self) -> i32 {
         match self {
-            TransportType::Live => srt_sys::SRT_TRANSTYPE::SRTT_LIVE as i32,
-            TransportType::File => srt_sys::SRT_TRANSTYPE::SRTT_FILE as i32,
+            TransportType::Live => srt_io_sys::SRT_TRANSTYPE::SRTT_LIVE as i32,
+            TransportType::File => srt_io_sys::SRT_TRANSTYPE::SRTT_FILE as i32,
         }
     }
 }
@@ -107,8 +107,8 @@ pub(crate) enum SockOpt {
 
 impl SockOpt {
     /// The raw libsrt flag this option maps onto.
-    fn as_raw(self) -> srt_sys::SRT_SOCKOPT {
-        use srt_sys::SRT_SOCKOPT::*;
+    fn as_raw(self) -> srt_io_sys::SRT_SOCKOPT {
+        use srt_io_sys::SRT_SOCKOPT::*;
         match self {
             SockOpt::MaxBw => SRTO_MAXBW,
             SockOpt::InputBw => SRTO_INPUTBW,
@@ -185,7 +185,7 @@ impl Options {
     /// Ordering matters: transport type first (it resets defaults), then key
     /// length before the passphrase so encryption negotiates correctly.
     pub(crate) fn apply(&self, sock: RawSocket) -> Result<()> {
-        use srt_sys::SRT_SOCKOPT::*;
+        use srt_io_sys::SRT_SOCKOPT::*;
 
         if let Some(tt) = self.transport_type {
             ffi::set_flag_i32(sock, SRTO_TRANSTYPE, tt.as_raw())?;

@@ -1,5 +1,5 @@
 //! Cross-implementation interop tests: OUR vendored libsrt (v1.5.4, via the
-//! `srt_sys` FFI) exchanging data with the REFERENCE Haivision tooling
+//! `srt_io_sys` FFI) exchanging data with the REFERENCE Haivision tooling
 //! (`srt-live-transmit`, which links its own libsrt — Homebrew ships v1.5.6).
 //!
 //! Both roles are covered:
@@ -19,11 +19,11 @@
 //! brew install srt            # provides srt-live-transmit
 //!
 //! # Then, from the workspace root:
-//! cargo test -p srt-sys --test cross_impl -- --ignored --nocapture
+//! cargo test -p srt-io-sys --test cross_impl -- --ignored --nocapture
 //!
 //! # If the binary is not on PATH, point at it explicitly:
 //! SRT_LIVE_TRANSMIT=/opt/homebrew/bin/srt-live-transmit \
-//!     cargo test -p srt-sys --test cross_impl -- --ignored --nocapture
+//!     cargo test -p srt-io-sys --test cross_impl -- --ignored --nocapture
 //! ```
 
 mod common;
@@ -35,7 +35,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use common::*;
-use srt_sys::{
+use srt_io_sys::{
     SRT_INVALID_SOCK, srt_accept, srt_bind, srt_close, srt_connect, srt_create_socket, srt_listen,
     srt_recv, srt_send,
 };
@@ -260,7 +260,7 @@ fn cross_our_listener_ref_caller() {
 
 /// Create a fresh caller socket and retry `srt_connect` until the reference
 /// listener is up (or we give up after `timeout`).
-fn connect_with_retry(port: u16, timeout: Duration) -> srt_sys::SRTSOCKET {
+fn connect_with_retry(port: u16, timeout: Duration) -> srt_io_sys::SRTSOCKET {
     let addr = sockaddr_in_v4([127, 0, 0, 1], port);
     let deadline = Instant::now() + timeout;
     loop {

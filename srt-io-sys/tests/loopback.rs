@@ -6,7 +6,7 @@
 //! PLAINTEXT variant and an AES-ENCRYPTED variant (SRTO_PASSPHRASE +
 //! SRTO_PBKEYLEN set on both ends).
 //!
-//! Run with: `cargo test -p srt-sys --test loopback`
+//! Run with: `cargo test -p srt-io-sys --test loopback`
 
 mod common;
 
@@ -14,7 +14,7 @@ use std::thread;
 use std::time::Duration;
 
 use common::*;
-use srt_sys::{
+use srt_io_sys::{
     SRT_INVALID_SOCK, srt_accept, srt_bind, srt_close, srt_connect, srt_create_socket, srt_listen,
     srt_recv, srt_send,
 };

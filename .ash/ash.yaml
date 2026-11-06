@@ -7,7 +7,7 @@ global_settings:
   severity_threshold: MEDIUM
   # Vendored C libraries are maintained upstream (git submodules); do not scan them here.
   ignore_paths:
-    - path: 'srt-sys/vendor/**'
+    - path: 'srt-io-sys/vendor/**'
       reason: 'Vendored third-party C sources (libsrt, mbedTLS) tracked as git submodules and maintained upstream.'
     - path: 'target/**'
       reason: 'Cargo build output (including the vendored cmake build tree).'

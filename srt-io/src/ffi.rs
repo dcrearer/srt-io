@@ -1,6 +1,6 @@
 //! The **only** module in this crate that contains `unsafe` code.
 //!
-//! Everything here is a thin, safe-to-call wrapper around the raw `srt_sys`
+//! Everything here is a thin, safe-to-call wrapper around the raw `srt_io_sys`
 //! FFI surface. Callers elsewhere in the crate get ordinary safe Rust: raw
 //! C sockets are represented as [`RawSocket`] (a plain `i32`), pointers never
 //! escape this module, and every fallible call is reduced to a
@@ -16,10 +16,10 @@ use std::os::raw::c_int;
 use crate::error::{Error, Result};
 
 /// Raw libsrt socket handle (`SRTSOCKET`).
-pub type RawSocket = srt_sys::SRTSOCKET;
+pub type RawSocket = srt_io_sys::SRTSOCKET;
 
 /// Sentinel returned by libsrt for an invalid socket.
-pub const INVALID_SOCK: RawSocket = srt_sys::SRT_INVALID_SOCK;
+pub const INVALID_SOCK: RawSocket = srt_io_sys::SRT_INVALID_SOCK;
 
 /// `true` on platforms whose `sockaddr_*` structs carry a leading length byte
 /// (the BSD family, including macOS/iOS).
@@ -49,7 +49,7 @@ const HAS_SA_LEN: bool = false;
 /// Reduce a libsrt return code to a `Result`, mapping `SRT_ERROR` to the last
 /// recorded error for `context`.
 fn check(rc: c_int, context: &'static str) -> Result<()> {
-    if rc == srt_sys::SRT_ERROR {
+    if rc == srt_io_sys::SRT_ERROR {
         Err(Error::from_last(context))
     } else {
         Ok(())
@@ -63,11 +63,11 @@ pub fn last_error() -> (i32, String) {
     let mut errno: c_int = 0;
     // SAFETY: `srt_getlasterror` writes the secondary errno through the
     // supplied pointer; `&mut errno` is a valid, aligned, writable location.
-    let code = unsafe { srt_sys::srt_getlasterror(&mut errno) };
+    let code = unsafe { srt_io_sys::srt_getlasterror(&mut errno) };
     // SAFETY: `srt_getlasterror_str` returns a pointer to a static,
     // NUL-terminated C string owned by libsrt; we only borrow it to copy.
     let message = unsafe {
-        let ptr = srt_sys::srt_getlasterror_str();
+        let ptr = srt_io_sys::srt_getlasterror_str();
         if ptr.is_null() {
             String::new()
         } else {
@@ -81,11 +81,11 @@ pub fn last_error() -> (i32, String) {
 pub fn reject_reason(sock: RawSocket) -> (i32, String) {
     // SAFETY: `srt_getrejectreason` takes a socket id by value and has no
     // pointer arguments; any id is accepted and validated internally.
-    let code = unsafe { srt_sys::srt_getrejectreason(sock) };
+    let code = unsafe { srt_io_sys::srt_getrejectreason(sock) };
     // SAFETY: returns a pointer to a static NUL-terminated string owned by
     // libsrt; borrowed only for the duration of the copy.
     let message = unsafe {
-        let ptr = srt_sys::srt_rejectreason_str(code);
+        let ptr = srt_io_sys::srt_rejectreason_str(code);
         if ptr.is_null() {
             String::new()
         } else {
@@ -99,7 +99,7 @@ pub fn reject_reason(sock: RawSocket) -> (i32, String) {
 pub fn startup() -> Result<()> {
     // SAFETY: `srt_startup` takes no arguments and is safe to call repeatedly;
     // libsrt reference-counts internally.
-    let rc = unsafe { srt_sys::srt_startup() };
+    let rc = unsafe { srt_io_sys::srt_startup() };
     if rc < 0 {
         Err(Error::startup(last_error().1))
     } else {
@@ -112,7 +112,7 @@ pub fn startup() -> Result<()> {
 pub fn cleanup() {
     // SAFETY: `srt_cleanup` takes no arguments; libsrt reference-counts and
     // only truly tears down on the final matching call.
-    let rc = unsafe { srt_sys::srt_cleanup() };
+    let rc = unsafe { srt_io_sys::srt_cleanup() };
     if rc < 0 {
         let (code, message) = last_error();
         tracing::error!(error.code = code, error.message = %message, "srt_cleanup failed");
@@ -123,7 +123,7 @@ pub fn cleanup() {
 pub fn create_socket() -> Result<RawSocket> {
     // SAFETY: `srt_create_socket` takes no arguments and returns a socket id
     // or `SRT_INVALID_SOCK`.
-    let sock = unsafe { srt_sys::srt_create_socket() };
+    let sock = unsafe { srt_io_sys::srt_create_socket() };
     if sock == INVALID_SOCK {
         Err(Error::from_last("create socket"))
     } else {
@@ -135,19 +135,19 @@ pub fn create_socket() -> Result<RawSocket> {
 pub fn close(sock: RawSocket) {
     // SAFETY: `srt_close` takes a socket id by value; double-close is reported
     // via return code rather than being undefined.
-    let rc = unsafe { srt_sys::srt_close(sock) };
-    if rc == srt_sys::SRT_ERROR {
+    let rc = unsafe { srt_io_sys::srt_close(sock) };
+    if rc == srt_io_sys::SRT_ERROR {
         let (code, message) = last_error();
         tracing::warn!(sock, error.code = code, error.message = %message, "srt_close failed");
     }
 }
 
 /// Set an integer-valued socket option.
-pub fn set_flag_i32(sock: RawSocket, opt: srt_sys::SRT_SOCKOPT, value: i32) -> Result<()> {
+pub fn set_flag_i32(sock: RawSocket, opt: srt_io_sys::SRT_SOCKOPT, value: i32) -> Result<()> {
     // SAFETY: integer options expect a pointer to a 4-byte `int`; `&value` is
     // valid and aligned, and we pass the matching length.
     let rc = unsafe {
-        srt_sys::srt_setsockflag(
+        srt_io_sys::srt_setsockflag(
             sock,
             opt,
             (&value as *const i32).cast(),
@@ -158,11 +158,11 @@ pub fn set_flag_i32(sock: RawSocket, opt: srt_sys::SRT_SOCKOPT, value: i32) -> R
 }
 
 /// Set a 64-bit integer-valued socket option (e.g. `SRTO_MAXBW`).
-pub fn set_flag_i64(sock: RawSocket, opt: srt_sys::SRT_SOCKOPT, value: i64) -> Result<()> {
+pub fn set_flag_i64(sock: RawSocket, opt: srt_io_sys::SRT_SOCKOPT, value: i64) -> Result<()> {
     // SAFETY: `int64_t` options expect a pointer to an 8-byte value; `&value`
     // is valid and aligned, and we pass the matching length.
     let rc = unsafe {
-        srt_sys::srt_setsockflag(
+        srt_io_sys::srt_setsockflag(
             sock,
             opt,
             (&value as *const i64).cast(),
@@ -176,16 +176,16 @@ pub fn set_flag_i64(sock: RawSocket, opt: srt_sys::SRT_SOCKOPT, value: i64) -> R
 ///
 /// libsrt's boolean options accept a C `int` of `0`/`1` (the same path used by
 /// `SRTO_RCVSYN`/`SRTO_SNDSYN`), so this forwards to [`set_flag_i32`].
-pub fn set_flag_bool(sock: RawSocket, opt: srt_sys::SRT_SOCKOPT, value: bool) -> Result<()> {
+pub fn set_flag_bool(sock: RawSocket, opt: srt_io_sys::SRT_SOCKOPT, value: bool) -> Result<()> {
     set_flag_i32(sock, opt, i32::from(value))
 }
 
 /// Set a byte-buffer socket option (e.g. the encryption passphrase).
-pub fn set_flag_bytes(sock: RawSocket, opt: srt_sys::SRT_SOCKOPT, value: &[u8]) -> Result<()> {
+pub fn set_flag_bytes(sock: RawSocket, opt: srt_io_sys::SRT_SOCKOPT, value: &[u8]) -> Result<()> {
     // SAFETY: buffer options expect `(ptr, len)`; `value` is a valid slice and
     // we pass its real length. libsrt copies the bytes before returning.
     let rc =
-        unsafe { srt_sys::srt_setsockflag(sock, opt, value.as_ptr().cast(), value.len() as c_int) };
+        unsafe { srt_io_sys::srt_setsockflag(sock, opt, value.as_ptr().cast(), value.len() as c_int) };
     check(rc, "set socket option")
 }
 
@@ -194,13 +194,13 @@ pub fn set_flag_bytes(sock: RawSocket, opt: srt_sys::SRT_SOCKOPT, value: &[u8]) 
 /// Used by tests to confirm an option was applied; the instantaneous stats use
 /// [`bstats`].
 #[cfg(test)]
-pub fn get_flag_i32(sock: RawSocket, opt: srt_sys::SRT_SOCKOPT) -> Result<i32> {
+pub fn get_flag_i32(sock: RawSocket, opt: srt_io_sys::SRT_SOCKOPT) -> Result<i32> {
     let mut value: i32 = 0;
     let mut len: c_int = std::mem::size_of::<i32>() as c_int;
     // SAFETY: integer options write a 4-byte `int` through `optval`; `&mut
     // value` is a valid, aligned, writable location and `len` matches its size.
     let rc =
-        unsafe { srt_sys::srt_getsockflag(sock, opt, (&mut value as *mut i32).cast(), &mut len) };
+        unsafe { srt_io_sys::srt_getsockflag(sock, opt, (&mut value as *mut i32).cast(), &mut len) };
     check(rc, "get socket option")?;
     Ok(value)
 }
@@ -210,14 +210,14 @@ pub fn get_flag_i32(sock: RawSocket, opt: srt_sys::SRT_SOCKOPT) -> Result<i32> {
 ///
 /// The returned value is a plain `#[repr(C)]` POD struct (no borrowed pointers),
 /// which the safe [`crate::stats::Stats`] wrapper then projects.
-pub fn bstats(sock: RawSocket, clear: bool) -> Result<srt_sys::SRT_TRACEBSTATS> {
+pub fn bstats(sock: RawSocket, clear: bool) -> Result<srt_io_sys::SRT_TRACEBSTATS> {
     // SAFETY: `SRT_TRACEBSTATS` is a POD byte buffer; an all-zero bit pattern is
     // a valid, empty value.
-    let mut perf: srt_sys::SRT_TRACEBSTATS = unsafe { std::mem::zeroed() };
+    let mut perf: srt_io_sys::SRT_TRACEBSTATS = unsafe { std::mem::zeroed() };
     // SAFETY: `perf` is a valid, writable `SRT_TRACEBSTATS` that outlives the
     // call; libsrt fills it in and retains no pointer. The final `1` selects the
     // instantaneous variant.
-    let rc = unsafe { srt_sys::srt_bistats(sock, &mut perf, c_int::from(clear), 1) };
+    let rc = unsafe { srt_io_sys::srt_bistats(sock, &mut perf, c_int::from(clear), 1) };
     check(rc, "bstats")?;
     Ok(perf)
 }
@@ -228,9 +228,9 @@ pub fn bind(sock: RawSocket, addr: &SocketAddr) -> Result<()> {
     // SAFETY: `storage` outlives the call and is a correctly initialised
     // `sockaddr_*`; `len` is its matching byte length.
     let rc = unsafe {
-        srt_sys::srt_bind(
+        srt_io_sys::srt_bind(
             sock,
-            (&storage as *const srt_sys::sockaddr_storage).cast(),
+            (&storage as *const srt_io_sys::sockaddr_storage).cast(),
             len,
         )
     };
@@ -240,21 +240,21 @@ pub fn bind(sock: RawSocket, addr: &SocketAddr) -> Result<()> {
 /// `srt_listen`.
 pub fn listen(sock: RawSocket, backlog: i32) -> Result<()> {
     // SAFETY: `srt_listen` takes the socket id and backlog by value.
-    let rc = unsafe { srt_sys::srt_listen(sock, backlog as c_int) };
+    let rc = unsafe { srt_io_sys::srt_listen(sock, backlog as c_int) };
     check(rc, "listen")
 }
 
 /// `srt_accept`. Blocks until a peer connects. Returns the accepted socket and
 /// the peer address.
 pub fn accept(sock: RawSocket) -> Result<(RawSocket, Option<SocketAddr>)> {
-    let mut storage: srt_sys::sockaddr_storage = unsafe { std::mem::zeroed() };
-    let mut len: c_int = std::mem::size_of::<srt_sys::sockaddr_storage>() as c_int;
+    let mut storage: srt_io_sys::sockaddr_storage = unsafe { std::mem::zeroed() };
+    let mut len: c_int = std::mem::size_of::<srt_io_sys::sockaddr_storage>() as c_int;
     // SAFETY: `storage`/`len` are valid in/out buffers sized for any
     // `sockaddr`; libsrt writes the peer address and the actual length.
     let accepted = unsafe {
-        srt_sys::srt_accept(
+        srt_io_sys::srt_accept(
             sock,
-            (&mut storage as *mut srt_sys::sockaddr_storage).cast(),
+            (&mut storage as *mut srt_io_sys::sockaddr_storage).cast(),
             &mut len,
         )
     };
@@ -271,13 +271,13 @@ pub fn connect(sock: RawSocket, addr: &SocketAddr) -> Result<()> {
     // SAFETY: `storage` is a valid `sockaddr_*` that outlives the call; `len`
     // matches its byte length.
     let rc = unsafe {
-        srt_sys::srt_connect(
+        srt_io_sys::srt_connect(
             sock,
-            (&storage as *const srt_sys::sockaddr_storage).cast(),
+            (&storage as *const srt_io_sys::sockaddr_storage).cast(),
             len,
         )
     };
-    if rc == srt_sys::SRT_ERROR {
+    if rc == srt_io_sys::SRT_ERROR {
         Err(Error::from_last_with_reject("connect", sock))
     } else {
         Ok(())
@@ -288,8 +288,8 @@ pub fn connect(sock: RawSocket, addr: &SocketAddr) -> Result<()> {
 pub fn send(sock: RawSocket, buf: &[u8]) -> Result<usize> {
     // SAFETY: `srt_send` reads `len` bytes from `buf`; the slice is valid for
     // that length and libsrt does not retain the pointer.
-    let rc = unsafe { srt_sys::srt_send(sock, buf.as_ptr().cast(), buf.len() as c_int) };
-    if rc == srt_sys::SRT_ERROR {
+    let rc = unsafe { srt_io_sys::srt_send(sock, buf.as_ptr().cast(), buf.len() as c_int) };
+    if rc == srt_io_sys::SRT_ERROR {
         Err(Error::from_last("send"))
     } else {
         Ok(rc as usize)
@@ -301,8 +301,8 @@ pub fn send(sock: RawSocket, buf: &[u8]) -> Result<usize> {
 pub fn recv(sock: RawSocket, buf: &mut [u8]) -> Result<usize> {
     // SAFETY: `srt_recv` writes up to `len` bytes into `buf`; the slice is a
     // valid, writable region of that length.
-    let rc = unsafe { srt_sys::srt_recv(sock, buf.as_mut_ptr().cast(), buf.len() as c_int) };
-    if rc == srt_sys::SRT_ERROR {
+    let rc = unsafe { srt_io_sys::srt_recv(sock, buf.as_mut_ptr().cast(), buf.len() as c_int) };
+    if rc == srt_io_sys::SRT_ERROR {
         Err(Error::from_last("recv"))
     } else {
         Ok(rc as usize)
@@ -320,16 +320,16 @@ pub fn peer_addr(sock: RawSocket) -> Result<SocketAddr> {
 }
 
 fn getname(sock: RawSocket, peer: bool) -> Result<SocketAddr> {
-    let mut storage: srt_sys::sockaddr_storage = unsafe { std::mem::zeroed() };
-    let mut len: c_int = std::mem::size_of::<srt_sys::sockaddr_storage>() as c_int;
-    let ptr = (&mut storage as *mut srt_sys::sockaddr_storage).cast();
+    let mut storage: srt_io_sys::sockaddr_storage = unsafe { std::mem::zeroed() };
+    let mut len: c_int = std::mem::size_of::<srt_io_sys::sockaddr_storage>() as c_int;
+    let ptr = (&mut storage as *mut srt_io_sys::sockaddr_storage).cast();
     // SAFETY: `storage`/`len` are a valid in/out buffer sized for any
     // `sockaddr`; libsrt writes the address and its actual length.
     let rc = unsafe {
         if peer {
-            srt_sys::srt_getpeername(sock, ptr, &mut len)
+            srt_io_sys::srt_getpeername(sock, ptr, &mut len)
         } else {
-            srt_sys::srt_getsockname(sock, ptr, &mut len)
+            srt_io_sys::srt_getsockname(sock, ptr, &mut len)
         }
     };
     let context = if peer {
@@ -351,24 +351,24 @@ fn getname(sock: RawSocket, peer: bool) -> Result<SocketAddr> {
 
 /// `SRT_EPOLL_IN`: readable / a connection is waiting to be accepted.
 #[cfg(feature = "tokio")]
-pub const EPOLL_IN: c_int = srt_sys::SRT_EPOLL_OPT::SRT_EPOLL_IN as c_int;
+pub const EPOLL_IN: c_int = srt_io_sys::SRT_EPOLL_OPT::SRT_EPOLL_IN as c_int;
 /// `SRT_EPOLL_OUT`: writable / (for a connecting socket) connected.
 #[cfg(feature = "tokio")]
-pub const EPOLL_OUT: c_int = srt_sys::SRT_EPOLL_OPT::SRT_EPOLL_OUT as c_int;
+pub const EPOLL_OUT: c_int = srt_io_sys::SRT_EPOLL_OPT::SRT_EPOLL_OUT as c_int;
 /// `SRT_EPOLL_ERR`: the socket has broken / errored.
 #[cfg(feature = "tokio")]
-pub const EPOLL_ERR: c_int = srt_sys::SRT_EPOLL_OPT::SRT_EPOLL_ERR as c_int;
+pub const EPOLL_ERR: c_int = srt_io_sys::SRT_EPOLL_OPT::SRT_EPOLL_ERR as c_int;
 
 /// libsrt error code for a would-block receive (`SRT_EASYNCRCV`).
 #[cfg(feature = "tokio")]
-pub const EASYNCRCV: i32 = srt_sys::SRT_ERRNO::SRT_EASYNCRCV as i32;
+pub const EASYNCRCV: i32 = srt_io_sys::SRT_ERRNO::SRT_EASYNCRCV as i32;
 /// libsrt error code for a would-block send (`SRT_EASYNCSND`).
 #[cfg(feature = "tokio")]
-pub const EASYNCSND: i32 = srt_sys::SRT_ERRNO::SRT_EASYNCSND as i32;
+pub const EASYNCSND: i32 = srt_io_sys::SRT_ERRNO::SRT_EASYNCSND as i32;
 
 /// A per-socket readiness event reported by [`epoll_uwait`].
 #[cfg(feature = "tokio")]
-pub type EpollEvent = srt_sys::SRT_EPOLL_EVENT;
+pub type EpollEvent = srt_io_sys::SRT_EPOLL_EVENT;
 
 /// Connection state of a socket (`srt_getsockstate`), reduced to a safe enum.
 #[cfg(feature = "tokio")]
@@ -388,10 +388,10 @@ pub enum SockStatus {
 /// `srt_getsockstate`.
 #[cfg(feature = "tokio")]
 pub fn getsockstate(sock: RawSocket) -> SockStatus {
-    use srt_sys::SRT_SOCKSTATUS::*;
+    use srt_io_sys::SRT_SOCKSTATUS::*;
     // SAFETY: `srt_getsockstate` takes a socket id by value and has no pointer
     // arguments; it returns a plain enum value.
-    let raw = unsafe { srt_sys::srt_getsockstate(sock) };
+    let raw = unsafe { srt_io_sys::srt_getsockstate(sock) };
     match raw {
         SRTS_INIT => SockStatus::Init,
         SRTS_OPENED => SockStatus::Opened,
@@ -410,8 +410,8 @@ pub fn getsockstate(sock: RawSocket) -> SockStatus {
 pub fn epoll_create() -> Result<c_int> {
     // SAFETY: `srt_epoll_create` takes no arguments and returns an id (>= 0) or
     // `SRT_ERROR`.
-    let eid = unsafe { srt_sys::srt_epoll_create() };
-    if eid == srt_sys::SRT_ERROR {
+    let eid = unsafe { srt_io_sys::srt_epoll_create() };
+    if eid == srt_io_sys::SRT_ERROR {
         Err(Error::from_last("epoll create"))
     } else {
         Ok(eid)
@@ -423,8 +423,8 @@ pub fn epoll_create() -> Result<c_int> {
 #[cfg(feature = "tokio")]
 pub fn epoll_release(eid: c_int) {
     // SAFETY: `srt_epoll_release` takes the epoll id by value.
-    let rc = unsafe { srt_sys::srt_epoll_release(eid) };
-    if rc == srt_sys::SRT_ERROR {
+    let rc = unsafe { srt_io_sys::srt_epoll_release(eid) };
+    if rc == srt_io_sys::SRT_ERROR {
         let (code, message) = last_error();
         tracing::warn!(eid, error.code = code, error.message = %message, "srt_epoll_release failed");
     }
@@ -435,7 +435,7 @@ pub fn epoll_release(eid: c_int) {
 pub fn epoll_add_usock(eid: c_int, sock: RawSocket, events: c_int) -> Result<()> {
     // SAFETY: `events` points to a single valid `int` that outlives the call;
     // libsrt reads the mask and does not retain the pointer.
-    let rc = unsafe { srt_sys::srt_epoll_add_usock(eid, sock, &events as *const c_int) };
+    let rc = unsafe { srt_io_sys::srt_epoll_add_usock(eid, sock, &events as *const c_int) };
     check(rc, "epoll add")
 }
 
@@ -443,7 +443,7 @@ pub fn epoll_add_usock(eid: c_int, sock: RawSocket, events: c_int) -> Result<()>
 #[cfg(feature = "tokio")]
 pub fn epoll_update_usock(eid: c_int, sock: RawSocket, events: c_int) -> Result<()> {
     // SAFETY: `events` points to a single valid `int` that outlives the call.
-    let rc = unsafe { srt_sys::srt_epoll_update_usock(eid, sock, &events as *const c_int) };
+    let rc = unsafe { srt_io_sys::srt_epoll_update_usock(eid, sock, &events as *const c_int) };
     check(rc, "epoll update")
 }
 
@@ -452,7 +452,7 @@ pub fn epoll_update_usock(eid: c_int, sock: RawSocket, events: c_int) -> Result<
 pub fn epoll_remove_usock(eid: c_int, sock: RawSocket) -> Result<()> {
     // SAFETY: `srt_epoll_remove_usock` takes the epoll id and socket id by
     // value; removing an absent socket is reported via the return code.
-    let rc = unsafe { srt_sys::srt_epoll_remove_usock(eid, sock) };
+    let rc = unsafe { srt_io_sys::srt_epoll_remove_usock(eid, sock) };
     check(rc, "epoll remove")
 }
 
@@ -463,9 +463,9 @@ pub fn epoll_uwait(eid: c_int, events: &mut [EpollEvent], timeout_ms: i64) -> Re
     // SAFETY: `events` is a valid, writable slice; we pass its real length and
     // libsrt writes at most that many entries, returning the count.
     let rc = unsafe {
-        srt_sys::srt_epoll_uwait(eid, events.as_mut_ptr(), events.len() as c_int, timeout_ms)
+        srt_io_sys::srt_epoll_uwait(eid, events.as_mut_ptr(), events.len() as c_int, timeout_ms)
     };
-    if rc == srt_sys::SRT_ERROR {
+    if rc == srt_io_sys::SRT_ERROR {
         Err(Error::from_last("epoll wait"))
     } else {
         Ok(rc as usize)
@@ -475,7 +475,7 @@ pub fn epoll_uwait(eid: c_int, events: &mut [EpollEvent], timeout_ms: i64) -> Re
 /// Set a socket to libsrt's non-blocking mode (`SRTO_RCVSYN = SRTO_SNDSYN = 0`).
 #[cfg(feature = "tokio")]
 pub fn set_nonblocking(sock: RawSocket) -> Result<()> {
-    use srt_sys::SRT_SOCKOPT::{SRTO_RCVSYN, SRTO_SNDSYN};
+    use srt_io_sys::SRT_SOCKOPT::{SRTO_RCVSYN, SRTO_SNDSYN};
     set_flag_i32(sock, SRTO_SNDSYN, 0)?;
     set_flag_i32(sock, SRTO_RCVSYN, 0)?;
     Ok(())
@@ -487,11 +487,11 @@ pub fn set_nonblocking(sock: RawSocket) -> Result<()> {
 ///
 /// We build the platform's `libc::sockaddr_in`/`sockaddr_in6` (zero-initialised
 /// so absent fields such as BSD's `sin_len` compile everywhere) and copy its
-/// bytes into the `srt_sys` storage, which has identical C layout.
-fn to_storage(addr: &SocketAddr) -> (srt_sys::sockaddr_storage, c_int) {
+/// bytes into the `srt_io_sys` storage, which has identical C layout.
+fn to_storage(addr: &SocketAddr) -> (srt_io_sys::sockaddr_storage, c_int) {
     // SAFETY: `sockaddr_storage` is a POD byte buffer; an all-zero bit pattern
     // is a valid, empty value.
-    let mut storage: srt_sys::sockaddr_storage = unsafe { std::mem::zeroed() };
+    let mut storage: srt_io_sys::sockaddr_storage = unsafe { std::mem::zeroed() };
     match addr {
         SocketAddr::V4(v4) => {
             // SAFETY: `sockaddr_in` is POD; zeroed is a valid starting value.
@@ -510,7 +510,7 @@ fn to_storage(addr: &SocketAddr) -> (srt_sys::sockaddr_storage, c_int) {
             unsafe {
                 std::ptr::copy_nonoverlapping(
                     (&sin as *const libc::sockaddr_in).cast::<u8>(),
-                    (&mut storage as *mut srt_sys::sockaddr_storage).cast::<u8>(),
+                    (&mut storage as *mut srt_io_sys::sockaddr_storage).cast::<u8>(),
                     len,
                 );
             }
@@ -533,7 +533,7 @@ fn to_storage(addr: &SocketAddr) -> (srt_sys::sockaddr_storage, c_int) {
             unsafe {
                 std::ptr::copy_nonoverlapping(
                     (&sin6 as *const libc::sockaddr_in6).cast::<u8>(),
-                    (&mut storage as *mut srt_sys::sockaddr_storage).cast::<u8>(),
+                    (&mut storage as *mut srt_io_sys::sockaddr_storage).cast::<u8>(),
                     len,
                 );
             }
@@ -544,7 +544,7 @@ fn to_storage(addr: &SocketAddr) -> (srt_sys::sockaddr_storage, c_int) {
 
 /// Parse a C `sockaddr_storage` back into a [`SocketAddr`]. Returns `None` for
 /// address families other than IPv4/IPv6.
-fn from_storage(storage: &srt_sys::sockaddr_storage) -> Option<SocketAddr> {
+fn from_storage(storage: &srt_io_sys::sockaddr_storage) -> Option<SocketAddr> {
     let family = storage.ss_family as i32;
     if family == libc::AF_INET {
         // SAFETY: the family tag says this storage holds a `sockaddr_in`;
@@ -552,7 +552,7 @@ fn from_storage(storage: &srt_sys::sockaddr_storage) -> Option<SocketAddr> {
         let sin: libc::sockaddr_in = unsafe {
             let mut sin: libc::sockaddr_in = std::mem::zeroed();
             std::ptr::copy_nonoverlapping(
-                (storage as *const srt_sys::sockaddr_storage).cast::<u8>(),
+                (storage as *const srt_io_sys::sockaddr_storage).cast::<u8>(),
                 (&mut sin as *mut libc::sockaddr_in).cast::<u8>(),
                 std::mem::size_of::<libc::sockaddr_in>(),
             );
@@ -567,7 +567,7 @@ fn from_storage(storage: &srt_sys::sockaddr_storage) -> Option<SocketAddr> {
         let sin6: libc::sockaddr_in6 = unsafe {
             let mut sin6: libc::sockaddr_in6 = std::mem::zeroed();
             std::ptr::copy_nonoverlapping(
-                (storage as *const srt_sys::sockaddr_storage).cast::<u8>(),
+                (storage as *const srt_io_sys::sockaddr_storage).cast::<u8>(),
                 (&mut sin6 as *mut libc::sockaddr_in6).cast::<u8>(),
                 std::mem::size_of::<libc::sockaddr_in6>(),
             );

@@ -56,7 +56,7 @@ pub struct Stats {
 
 impl Stats {
     /// Project libsrt's raw performance monitor struct into a [`Stats`].
-    pub(crate) fn from_raw(raw: &srt_sys::SRT_TRACEBSTATS) -> Self {
+    pub(crate) fn from_raw(raw: &srt_io_sys::SRT_TRACEBSTATS) -> Self {
         Stats {
             rtt_ms: raw.msRTT,
             bandwidth_mbps: raw.mbpsBandwidth,
