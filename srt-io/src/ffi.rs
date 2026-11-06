@@ -184,8 +184,9 @@ pub fn set_flag_bool(sock: RawSocket, opt: srt_io_sys::SRT_SOCKOPT, value: bool)
 pub fn set_flag_bytes(sock: RawSocket, opt: srt_io_sys::SRT_SOCKOPT, value: &[u8]) -> Result<()> {
     // SAFETY: buffer options expect `(ptr, len)`; `value` is a valid slice and
     // we pass its real length. libsrt copies the bytes before returning.
-    let rc =
-        unsafe { srt_io_sys::srt_setsockflag(sock, opt, value.as_ptr().cast(), value.len() as c_int) };
+    let rc = unsafe {
+        srt_io_sys::srt_setsockflag(sock, opt, value.as_ptr().cast(), value.len() as c_int)
+    };
     check(rc, "set socket option")
 }
 
@@ -199,8 +200,9 @@ pub fn get_flag_i32(sock: RawSocket, opt: srt_io_sys::SRT_SOCKOPT) -> Result<i32
     let mut len: c_int = std::mem::size_of::<i32>() as c_int;
     // SAFETY: integer options write a 4-byte `int` through `optval`; `&mut
     // value` is a valid, aligned, writable location and `len` matches its size.
-    let rc =
-        unsafe { srt_io_sys::srt_getsockflag(sock, opt, (&mut value as *mut i32).cast(), &mut len) };
+    let rc = unsafe {
+        srt_io_sys::srt_getsockflag(sock, opt, (&mut value as *mut i32).cast(), &mut len)
+    };
     check(rc, "get socket option")?;
     Ok(value)
 }
