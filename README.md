@@ -27,8 +27,8 @@ byte-exact against `srt-live-transmit` across libsrt versions (see
 
 | Crate | Role |
 |-------|------|
-| [`srt-io`](srt-io)         | The safe wrapper you depend on. `#![deny(unsafe_code)]`; all `unsafe` is confined to one internal `ffi` module. Typed errors (`thiserror`), structured logging (`tracing`). |
-| [`srt-io-sys`](srt-io-sys) | Raw `bindgen` FFI over a vendored, statically built **libsrt v1.5.4** + **mbedTLS v3.6.2**. You usually do not depend on this directly. |
+| [`srt-io`](https://github.com/dcrearer/srt-io/tree/main/srt-io)         | The safe wrapper you depend on. `#![deny(unsafe_code)]`; all `unsafe` is confined to one internal `ffi` module. Typed errors (`thiserror`), structured logging (`tracing`). |
+| [`srt-io-sys`](https://github.com/dcrearer/srt-io/tree/main/srt-io-sys) | Raw `bindgen` FFI over a vendored, statically built **libsrt v1.5.4** + **mbedTLS v3.6.2**. You usually do not depend on this directly. |
 
 ## Features
 
@@ -183,7 +183,7 @@ connection is up (a broken socket can no longer report stats).
 
 ## Examples
 
-Runnable examples live in [`srt-io/examples/`](srt-io/examples):
+Runnable examples live in [`srt-io/examples/`](https://github.com/dcrearer/srt-io/tree/main/srt-io/examples):
 
 ```sh
 # Blocking (start the listener first, then the caller)
@@ -196,14 +196,14 @@ cargo run -p srt-io --features tokio --example async_caller
 ```
 
 A small reader/writer CLI that exercises the library end to end lives in the
-sibling [`srt-demo`](../srt-demo) crate.
+sibling `srt-demo` crate (a separate local example project).
 
 ## Interoperability
 
 Verified byte-exact against the reference implementation (`srt-live-transmit`),
 in both caller and listener roles and across libsrt versions (our vendored
 1.5.4 ↔ a system 1.5.6). See
-[`tools/interop/INTEROP.md`](tools/interop/INTEROP.md) for the test matrix and
+[`tools/interop/INTEROP.md`](https://github.com/dcrearer/srt-io/blob/main/tools/interop/INTEROP.md) for the test matrix and
 results.
 
 ## Versioning
