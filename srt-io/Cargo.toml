@@ -10,13 +10,17 @@ categories = ["network-programming"]
 keywords = ["srt", "libsrt", "streaming", "transport", "video"]
 
 [dependencies]
-srt-io-sys.workspace = true
+srt-io-sys = { workspace = true, default-features = false }
 thiserror.workspace = true
 tracing.workspace = true
 libc.workspace = true
 tokio = { workspace = true, optional = true }
 
 [features]
+default = ["vendored"]
+# Build libsrt from vendored source (default). Disable with
+# `default-features = false` to link a system libsrt via pkg-config.
+vendored = ["srt-io-sys/vendored"]
 # Opt-in Tokio async layer. Off by default: the blocking API needs no Tokio.
 tokio = ["dep:tokio"]
 

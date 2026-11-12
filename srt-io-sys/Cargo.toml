@@ -11,11 +11,18 @@ keywords = ["srt", "libsrt", "ffi", "streaming", "transport"]
 links = "srt"
 build = "build.rs"
 
+[features]
+default = ["vendored"]
+# Build a pinned libsrt + mbedTLS from source (no system dependency). Disable
+# (`default-features = false`) to link a system libsrt discovered via pkg-config.
+vendored = []
+
 [dependencies]
 
 [build-dependencies]
 bindgen = "0.72"
 cmake = "0.1"
+pkg-config = "0.3"
 
 [dev-dependencies]
 libc.workspace = true

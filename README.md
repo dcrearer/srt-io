@@ -28,7 +28,7 @@ byte-exact against `srt-live-transmit` across libsrt versions (see
 | Crate | Role |
 |-------|------|
 | [`srt-io`](https://github.com/dcrearer/srt-io/tree/main/srt-io)         | The safe wrapper you depend on. `#![deny(unsafe_code)]`; all `unsafe` is confined to one internal `ffi` module. Typed errors (`thiserror`), structured logging (`tracing`). |
-| [`srt-io-sys`](https://github.com/dcrearer/srt-io/tree/main/srt-io-sys) | Raw `bindgen` FFI over a vendored, statically built **libsrt v1.5.4** + **mbedTLS v3.6.2**. You usually do not depend on this directly. |
+| [`srt-io-sys`](https://github.com/dcrearer/srt-io/tree/main/srt-io-sys) | Raw `bindgen` FFI over **libsrt v1.5.6** — vendored + statically built with mbedTLS by default, or a system libsrt via pkg-config. You usually do not depend on this directly. |
 
 ## Features
 
@@ -61,16 +61,27 @@ breaking changes. Contributions/requests welcome.
 
 ## Build prerequisites
 
-`srt-io-sys` compiles libsrt and mbedTLS **from source** at build time, so every
-machine that builds a project depending on `srt-io` needs:
+By default (the **`vendored`** feature) `srt-io-sys` compiles libsrt + mbedTLS
+**from source** and links them statically — no runtime shared-library
+dependency, no system libsrt. That requires on every building machine:
 
 - A **C/C++ toolchain** (clang or gcc).
 - **cmake** (3.5+; works with cmake 4.x).
 - **libclang** (used by `bindgen`). On macOS it ships with the Xcode Command
   Line Tools; on Debian/Ubuntu install `clang libclang-dev`.
 
-libsrt and mbedTLS are **statically linked**, so the resulting binary has no
-runtime shared-library dependency. There is no system libsrt involved.
+### Using a system libsrt instead (skip the from-source build)
+
+Disable the default features to link a libsrt already installed on the system,
+discovered via **pkg-config**. This avoids the cmake/C build entirely (builds in
+a second or two) and only needs `libclang` for `bindgen`:
+
+```toml
+srt-io = { version = "0.1", default-features = false, features = ["tokio"] }
+```
+
+Install the library and make sure its `srt.pc` is on `PKG_CONFIG_PATH`:
+`brew install srt` (macOS) or `apt-get install libsrt-openssl-dev` (Debian/Ubuntu).
 
 ## Adding it as a dependency
 
@@ -208,7 +219,7 @@ results.
 
 ## Versioning
 
-Vendored and pinned: **libsrt v1.5.4**, **mbedTLS v3.6.2**. Bumping either is a
+Vendored and pinned: **libsrt v1.5.6**, **mbedTLS v3.6.2**. Bumping either is a
 submodule update plus a rebuild.
 
 ## License
