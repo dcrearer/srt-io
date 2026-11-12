@@ -12,22 +12,38 @@ use srt_io_sys::SRT_SOCKOPT::{
     SRTO_PASSPHRASE, SRTO_PBKEYLEN, SRTO_RCVSYN, SRTO_SNDSYN, SRTO_TRANSTYPE,
 };
 use srt_io_sys::{
-    SRT_SOCKOPT, SRT_TRANSTYPE, SRTSOCKET, srt_getlasterror_str, srt_getsockname, srt_setsockflag,
-    srt_startup,
+    SRT_SOCKOPT, SRT_TRANSTYPE, SRTSOCKET, srt_cleanup, srt_getlasterror_str, srt_getsockname,
+    srt_setsockflag, srt_startup,
 };
 
 static START: Once = Once::new();
 
 /// Initialise libsrt exactly once for the whole test binary.
 ///
-/// `srt_startup`/`srt_cleanup` are process-global and reference counted.
-/// Because cargo runs every `#[test]` as a thread inside a single process, we
-/// start once and intentionally never call `srt_cleanup` — tearing the library
-/// down while a sibling test is mid-flight would be a data race.
+/// `srt_startup`/`srt_cleanup` are process-global and reference counted. Because
+/// cargo runs every `#[test]` as a thread inside one process, we start once and
+/// register an `atexit` handler to call `srt_cleanup` at process exit — after
+/// the harness has joined all test threads. This is necessary: without it,
+/// libsrt's background GC thread is still running when the process tears down,
+/// which segfaults on Linux (exit-time use-after-free). Doing cleanup from
+/// `atexit` (registered after libsrt's own statics) gives an orderly shutdown.
 pub fn init() {
     START.call_once(|| {
         let rc = unsafe { srt_startup() };
         assert!(rc >= 0, "srt_startup failed: {}", last_error());
+
+        extern "C" fn cleanup_at_exit() {
+            // SAFETY: runs at process exit once all test threads have been
+            // joined, so no socket is in flight; `srt_cleanup` joins libsrt's
+            // GC thread for an orderly teardown.
+            unsafe {
+                srt_cleanup();
+            }
+        }
+        // SAFETY: registering a plain `extern "C"` function with libc's atexit.
+        unsafe {
+            libc::atexit(cleanup_at_exit);
+        }
     });
 }
 
