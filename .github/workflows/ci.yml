@@ -164,7 +164,11 @@ jobs:
         uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
 
       - name: Run ASH (local mode)
-        run: uvx git+https://github.com/awslabs/automated-security-helper.git@v3 --mode local
+        # Don't fail on scanners that can't run in the uvx env (cfn-guard, grype,
+        # gitleaks, actionlint, npm-audit) — most are irrelevant to a Rust crate,
+        # and secret scanning runs as a local pre-commit hook. Real findings at or
+        # above the .ash/ash.yaml threshold still fail the build.
+        run: uvx git+https://github.com/awslabs/automated-security-helper.git@v3 --mode local --no-fail-on-incomplete-scanners
 
       - name: Upload ASH results
         if: always()

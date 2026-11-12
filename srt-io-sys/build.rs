@@ -41,7 +41,10 @@ fn build_vendored() -> Vec<PathBuf> {
         .define("ENABLE_LOGGING", "ON")
         .define("CMAKE_POLICY_VERSION_MINIMUM", "3.5")
         .define("CMAKE_PREFIX_PATH", mbedtls.display().to_string())
-        .define("MBEDTLS_INCLUDE_DIR", format!("{}/include", mbedtls.display()))
+        .define(
+            "MBEDTLS_INCLUDE_DIR",
+            format!("{}/include", mbedtls.display()),
+        )
         .define("MBEDTLS_LIBRARY_DIR", format!("{}/lib", mbedtls.display()))
         .build();
 
