@@ -1,6 +1,8 @@
 [package]
 name = "srt-io-sys"
-version.workspace = true
+# Pinned independently of the workspace version: the sys crate is unchanged
+# since 0.1.3, so it is not republished when the wrapper (srt-io) is released.
+version = "0.1.3"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true

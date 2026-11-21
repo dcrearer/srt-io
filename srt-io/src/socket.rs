@@ -81,6 +81,77 @@ impl Socket {
         })?;
         Ok(Stats::from_raw(&raw))
     }
+
+    // ---- post options (settable on a live, connected socket) -------------
+    //
+    // libsrt classifies these flags with the `post` restriction, meaning
+    // `srt_setsockflag` accepts them after the connection is established. They
+    // mirror the same-named [`Builder`](crate::Builder) setters, which apply the
+    // value once at creation time; these let callers retune a running link.
+    // Options with `pre`/`pre-bind` restriction are deliberately *not* exposed
+    // here: libsrt rejects them on a connected socket, so changing one means
+    // building a fresh connection.
+
+    /// Set the maximum send bandwidth in bytes/sec (`SRTO_MAXBW`) on this live
+    /// socket. `-1` means relative to the input rate; `0` means unlimited.
+    #[tracing::instrument(level = "debug", skip(self), fields(sock = self.sock))]
+    pub fn set_max_bw(&self, bytes_per_sec: i64) -> Result<()> {
+        self.set_i64(srt_io_sys::SRT_SOCKOPT::SRTO_MAXBW, bytes_per_sec)
+    }
+
+    /// Set the estimated input bandwidth in bytes/sec (`SRTO_INPUTBW`) on this
+    /// live socket, used with [`set_overhead_bw`](Socket::set_overhead_bw) when
+    /// `max_bw` is relative.
+    #[tracing::instrument(level = "debug", skip(self), fields(sock = self.sock))]
+    pub fn set_input_bw(&self, bytes_per_sec: i64) -> Result<()> {
+        self.set_i64(srt_io_sys::SRT_SOCKOPT::SRTO_INPUTBW, bytes_per_sec)
+    }
+
+    /// Set the overhead bandwidth as a percentage of input (`SRTO_OHEADBW`,
+    /// 5–100) on this live socket.
+    #[tracing::instrument(level = "debug", skip(self), fields(sock = self.sock))]
+    pub fn set_overhead_bw(&self, percent: i32) -> Result<()> {
+        self.set_i32(srt_io_sys::SRT_SOCKOPT::SRTO_OHEADBW, percent)
+    }
+
+    /// Set the maximum reorder tolerance before a packet is declared lost
+    /// (`SRTO_LOSSMAXTTL`, in packets) on this live socket.
+    #[tracing::instrument(level = "debug", skip(self), fields(sock = self.sock))]
+    pub fn set_loss_max_ttl(&self, packets: i32) -> Result<()> {
+        self.set_i32(srt_io_sys::SRT_SOCKOPT::SRTO_LOSSMAXTTL, packets)
+    }
+
+    /// Set the blocking-receive timeout (`SRTO_RCVTIMEO`, truncated to whole
+    /// milliseconds) on this live socket.
+    #[tracing::instrument(level = "debug", skip(self), fields(sock = self.sock))]
+    pub fn set_receive_timeout(&self, timeout: std::time::Duration) -> Result<()> {
+        self.set_i32(
+            srt_io_sys::SRT_SOCKOPT::SRTO_RCVTIMEO,
+            crate::options::duration_ms(timeout),
+        )
+    }
+
+    /// Set the blocking-send timeout (`SRTO_SNDTIMEO`, truncated to whole
+    /// milliseconds) on this live socket.
+    #[tracing::instrument(level = "debug", skip(self), fields(sock = self.sock))]
+    pub fn set_send_timeout(&self, timeout: std::time::Duration) -> Result<()> {
+        self.set_i32(
+            srt_io_sys::SRT_SOCKOPT::SRTO_SNDTIMEO,
+            crate::options::duration_ms(timeout),
+        )
+    }
+
+    fn set_i32(&self, opt: srt_io_sys::SRT_SOCKOPT, value: i32) -> Result<()> {
+        ffi::set_flag_i32(self.sock, opt, value).inspect_err(|e| {
+            tracing::error!(error.kind = "set_option", error = %e, "srt set option failed");
+        })
+    }
+
+    fn set_i64(&self, opt: srt_io_sys::SRT_SOCKOPT, value: i64) -> Result<()> {
+        ffi::set_flag_i64(self.sock, opt, value).inspect_err(|e| {
+            tracing::error!(error.kind = "set_option", error = %e, "srt set option failed");
+        })
+    }
 }
 
 #[cfg(test)]

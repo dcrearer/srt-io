@@ -271,6 +271,69 @@ mod tests {
     }
 
     #[test]
+    fn post_options_settable_on_live_socket() {
+        // The `post`-restricted flags must be accepted by libsrt *after* the
+        // connection is established. Set each on the live caller socket, then
+        // read one back to confirm it took effect.
+        let lib = Library::init().expect("startup");
+
+        let listener = lib
+            .builder()
+            .transport_type(TransportType::Live)
+            .bind("127.0.0.1:0")
+            .expect("bind");
+        listener.listen(1).expect("listen");
+        let addr = listener.local_addr().expect("local_addr");
+
+        let server = thread::spawn(move || {
+            let (conn, _peer) = listener.accept().expect("accept");
+            let mut buf = [0u8; 1500];
+            let n = conn.recv(&mut buf).expect("server recv");
+            let _ = conn.send(&buf[..n]).expect("server echo");
+            let mut drain = [0u8; 1500];
+            let _ = conn.recv(&mut drain);
+            drop(conn);
+            drop(listener);
+        });
+
+        let client = lib
+            .builder()
+            .transport_type(TransportType::Live)
+            .connect_timeout(Duration::from_secs(3))
+            .connect(addr)
+            .expect("connect");
+
+        // Every one of these is a `post` option: it must succeed on a socket
+        // that is already connected.
+        client.set_max_bw(2_000_000).expect("set_max_bw");
+        client.set_input_bw(1_500_000).expect("set_input_bw");
+        client.set_overhead_bw(30).expect("set_overhead_bw");
+        client.set_loss_max_ttl(24).expect("set_loss_max_ttl");
+        client
+            .set_receive_timeout(Duration::from_secs(4))
+            .expect("set_receive_timeout");
+        client
+            .set_send_timeout(Duration::from_secs(4))
+            .expect("set_send_timeout");
+
+        // Read one back to prove the value landed (LOSSMAXTTL is a local
+        // setting, not renegotiated by the handshake).
+        let ttl = client
+            .get_flag_i32(srt_io_sys::SRT_SOCKOPT::SRTO_LOSSMAXTTL)
+            .expect("getsockflag");
+        assert_eq!(ttl, 24, "set_loss_max_ttl(24) should read back as 24");
+
+        let payload = b"post options payload";
+        client.send(payload).expect("client send");
+        let mut buf = [0u8; 1500];
+        let n = client.recv(&mut buf).expect("client recv");
+        assert_eq!(&buf[..n], payload);
+
+        drop(client);
+        server.join().expect("server thread");
+    }
+
+    #[test]
     fn stats_report_nonzero_after_roundtrip() {
         let lib = Library::init().expect("startup");
 
